@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users(
   school_id INTEGER NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('student','teacher','admin')),
   name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, pass_hash TEXT NOT NULL,
-  grade TEXT DEFAULT '', student_id TEXT DEFAULT '',
+  grade TEXT DEFAULT '', student_id TEXT DEFAULT '', id_photo TEXT DEFAULT '',
   status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
   created TEXT DEFAULT (datetime('now'))
 );
@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS photos(
 );
 `);
 try { db.exec("ALTER TABLE users ADD COLUMN student_id TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+try { db.exec("ALTER TABLE users ADD COLUMN id_photo TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 
 /* ---------------- seed (only when empty) ---------------- */
 if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
@@ -163,19 +164,25 @@ app.get('/api/schools/:id/public', (req, res) => {
 });
 
 app.post('/api/signup', (req, res) => {
-  const { school_id, role, name, email, password, grade, student_id } = req.body || {};
+  const { school_id, role, name, email, password, grade, student_id, id_photo } = req.body || {};
   if (!school_id || !['student', 'teacher'].includes(role) || !name || !email || !password)
     return res.status(400).json({ error: 'Missing required fields.' });
   if (role === 'student' && !(student_id || '').trim())
     return res.status(400).json({ error: 'Student ID is required to sign up as a student.' });
+  if (role === 'student') {
+    if (!id_photo || !id_photo.startsWith('data:image'))
+      return res.status(400).json({ error: 'A photo of your school ID is required to sign up as a student.' });
+    if (id_photo.length > 4e6)
+      return res.status(400).json({ error: 'ID photo is too large — please retake or choose a smaller image.' });
+  }
   if (q.userByEmail.get(email)) return res.status(409).json({ error: 'That email already has an account.' });
   if (role === 'student' && db.prepare(
     "SELECT 1 x FROM users WHERE school_id=? AND role='student' AND student_id=? AND student_id<>''")
     .get(school_id, student_id.trim()))
     return res.status(409).json({ error: 'That Student ID is already registered at this school.' });
-  db.prepare('INSERT INTO users(school_id,role,name,email,pass_hash,grade,student_id) VALUES(?,?,?,?,?,?,?)')
+  db.prepare('INSERT INTO users(school_id,role,name,email,pass_hash,grade,student_id,id_photo) VALUES(?,?,?,?,?,?,?,?)')
     .run(school_id, role, name.trim(), email.trim(), bcrypt.hashSync(password, 10), grade || '',
-      role === 'student' ? student_id.trim() : '');
+      role === 'student' ? student_id.trim() : '', role === 'student' ? id_photo : '');
   res.json({ ok: true, message: 'Account created — an administrator must approve it before you can continue.' });
 });
 
@@ -353,7 +360,7 @@ app.get('/api/admin/overview', ...adm, (req, res) => {
 
 app.get('/api/admin/pending', ...adm, (req, res) => {
   res.json(db.prepare(
-    "SELECT id,role,name,email,grade,student_id,created FROM users WHERE school_id=? AND status='pending' ORDER BY created")
+    "SELECT id,role,name,email,grade,student_id,id_photo,created FROM users WHERE school_id=? AND status='pending' ORDER BY created")
     .all(req.user.school_id));
 });
 app.post('/api/admin/approve', ...adm, (req, res) => {
