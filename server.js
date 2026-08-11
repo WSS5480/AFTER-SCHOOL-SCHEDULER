@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS users(
   school_id INTEGER NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('student','teacher','admin')),
   name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, pass_hash TEXT NOT NULL,
-  grade TEXT DEFAULT '', status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+  grade TEXT DEFAULT '', student_id TEXT DEFAULT '',
+  status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
   created TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS programs(
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS photos(
   caption TEXT DEFAULT '', data TEXT NOT NULL
 );
 `);
+try { db.exec("ALTER TABLE users ADD COLUMN student_id TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 
 /* ---------------- seed (only when empty) ---------------- */
 if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
@@ -81,8 +83,8 @@ if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
     .run(sid, 'admin', 'School Admin', 'admin@demo.school', hash('admin123'), 'approved');
   const teach = db.prepare("INSERT INTO users(school_id,role,name,email,pass_hash,status) VALUES(?,?,?,?,?,?)")
     .run(sid, 'teacher', 'Coach Rivera', 'rivera@demo.school', hash('teach123'), 'approved');
-  db.prepare("INSERT INTO users(school_id,role,name,email,pass_hash,grade,status) VALUES(?,?,?,?,?,?,?)")
-    .run(sid, 'student', 'Maya Torres', 'maya@demo.school', hash('learn123'), '5', 'approved');
+  db.prepare("INSERT INTO users(school_id,role,name,email,pass_hash,grade,student_id,status) VALUES(?,?,?,?,?,?,?,?)")
+    .run(sid, 'student', 'Maya Torres', 'maya@demo.school', hash('learn123'), '5', 'S-1001', 'approved');
   const today = new Date(); const iso = d => d.toISOString().slice(0, 10);
   const start = new Date(today); start.setDate(start.getDate() - 14);
   const end = new Date(today); end.setDate(end.getDate() + 90);
@@ -161,12 +163,19 @@ app.get('/api/schools/:id/public', (req, res) => {
 });
 
 app.post('/api/signup', (req, res) => {
-  const { school_id, role, name, email, password, grade } = req.body || {};
+  const { school_id, role, name, email, password, grade, student_id } = req.body || {};
   if (!school_id || !['student', 'teacher'].includes(role) || !name || !email || !password)
     return res.status(400).json({ error: 'Missing required fields.' });
+  if (role === 'student' && !(student_id || '').trim())
+    return res.status(400).json({ error: 'Student ID is required to sign up as a student.' });
   if (q.userByEmail.get(email)) return res.status(409).json({ error: 'That email already has an account.' });
-  db.prepare('INSERT INTO users(school_id,role,name,email,pass_hash,grade) VALUES(?,?,?,?,?,?)')
-    .run(school_id, role, name.trim(), email.trim(), bcrypt.hashSync(password, 10), grade || '');
+  if (role === 'student' && db.prepare(
+    "SELECT 1 x FROM users WHERE school_id=? AND role='student' AND student_id=? AND student_id<>''")
+    .get(school_id, student_id.trim()))
+    return res.status(409).json({ error: 'That Student ID is already registered at this school.' });
+  db.prepare('INSERT INTO users(school_id,role,name,email,pass_hash,grade,student_id) VALUES(?,?,?,?,?,?,?)')
+    .run(school_id, role, name.trim(), email.trim(), bcrypt.hashSync(password, 10), grade || '',
+      role === 'student' ? student_id.trim() : '');
   res.json({ ok: true, message: 'Account created — an administrator must approve it before you can continue.' });
 });
 
@@ -308,7 +317,7 @@ app.get('/api/teacher/roster', auth(['teacher', 'admin']), approvedOnly, (req, r
   if (req.user.role === 'teacher' && p.teacher_id !== req.user.id)
     return res.status(403).json({ error: 'Not your program.' });
   const roster = db.prepare(
-    `SELECT r.id res_id, r.status, r.attended, u.id student_id, u.name, u.grade FROM reservations r
+    `SELECT r.id res_id, r.status, r.attended, u.id student_id, u.name, u.grade, u.student_id id_number FROM reservations r
      JOIN users u ON u.id=r.student_id WHERE r.program_id=? AND r.date=? AND r.status IN ('reserved','waitlist')
      ORDER BY r.status DESC, r.created`).all(program_id, date);
   roster.forEach(r => r.attendance_pct = attendanceStats(r.student_id).pct);
@@ -344,7 +353,7 @@ app.get('/api/admin/overview', ...adm, (req, res) => {
 
 app.get('/api/admin/pending', ...adm, (req, res) => {
   res.json(db.prepare(
-    "SELECT id,role,name,email,grade,created FROM users WHERE school_id=? AND status='pending' ORDER BY created")
+    "SELECT id,role,name,email,grade,student_id,created FROM users WHERE school_id=? AND status='pending' ORDER BY created")
     .all(req.user.school_id));
 });
 app.post('/api/admin/approve', ...adm, (req, res) => {
@@ -357,7 +366,7 @@ app.post('/api/admin/approve', ...adm, (req, res) => {
 
 app.get('/api/admin/users', ...adm, (req, res) => {
   const rows = db.prepare(
-    "SELECT id,role,name,email,grade,status FROM users WHERE school_id=? ORDER BY role,name").all(req.user.school_id);
+    "SELECT id,role,name,email,grade,student_id,status FROM users WHERE school_id=? ORDER BY role,name").all(req.user.school_id);
   rows.filter(r => r.role === 'student').forEach(r => r.attendance_pct = attendanceStats(r.id).pct);
   res.json(rows);
 });

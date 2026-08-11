@@ -225,18 +225,21 @@ async function doLogin(){
 function showSignup(){
   openModal(`<h3 class="sec">Create an account</h3>
   <div class="field"><label>School</label><select id="su_school">${SCHOOLS.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
-  <div class="field"><label>I am a…</label><select id="su_role"><option value="student">Student</option><option value="teacher">Teacher</option></select></div>
+  <div class="field"><label>I am a…</label><select id="su_role" onchange="document.getElementById('su_sidwrap').style.display=this.value==='student'?'':'none'"><option value="student">Student</option><option value="teacher">Teacher</option></select></div>
   <div class="row2"><div class="field"><label>Full name</label><input id="su_name"></div>
   <div class="field"><label>Grade (students)</label><input id="su_grade" placeholder="e.g. 5"></div></div>
+  <div class="field" id="su_sidwrap"><label>Student ID (required — on your school ID card)</label><input id="su_sid" placeholder="e.g. S-12345"></div>
   <div class="field"><label>Email</label><input id="su_email" type="email"></div>
   <div class="field"><label>Password</label><input id="su_pass" type="password"></div>
   <button class="btn" onclick="doSignup()">Sign up</button>
   <p class="note" style="margin-top:10px">Your account must be approved by a school administrator before you can schedule anything.</p>`);
 }
 async function doSignup(){
+  if($('su_role').value==='student'&&!$('su_sid').value.trim()) return toast('Please enter your Student ID — it\'s required for student accounts.');
   try{
     const d=await api('/api/signup',{method:'POST',body:{school_id:+$('su_school').value,role:$('su_role').value,
-      name:$('su_name').value,grade:$('su_grade').value,email:$('su_email').value,password:$('su_pass').value}});
+      name:$('su_name').value,grade:$('su_grade').value,student_id:$('su_sid').value,
+      email:$('su_email').value,password:$('su_pass').value}});
     closeModal();toast(d.message);
   }catch(e){toast(e.message)}
 }
@@ -342,7 +345,7 @@ async function openRoster(pid,date){
   <span id="attCount"><b>0</b> marked</span></p>
   <div id="rosterRows">${d.roster.filter(r=>r.status==='reserved').map(r=>`
     <div class="rrow"><div class="nm">${esc(r.name)}${r.attendance_pct<80?' <span class="pill wait">⚠ '+r.attendance_pct+'%</span>':''}
-      <small>Grade ${esc(r.grade||'—')} · ${r.attendance_pct}% attendance${r.attended!==null?' · already marked '+(r.attended?'present':'absent'):''}</small></div>
+      <small>ID ${esc(r.id_number||'—')} · Grade ${esc(r.grade||'—')} · ${r.attendance_pct}% attendance${r.attended!==null?' · already marked '+(r.attended?'present':'absent'):''}</small></div>
       <div style="display:flex;gap:6px">
       <button class="att p ${r.attended===1?'on':''}" onclick="mark(this,${r.student_id},1)">✔ Present</button>
       <button class="att a ${r.attended===0?'on':''}" onclick="mark(this,${r.student_id},0)">✘ Absent</button></div></div>`).join('')||'<p class="note">No students enrolled yet.</p>'}
@@ -388,7 +391,7 @@ async function renderAdmin(){
   if(atab==='appr'){
     const rows=await api('/api/admin/pending');
     pane.innerHTML=rows.map(u=>`<div class="appr" id="ap${u.id}">
-      <div><b>${esc(u.name)}</b><small style="display:block;color:var(--ink2);font-size:12px">${u.role==='student'?'Student · Grade '+esc(u.grade||'—'):'Teacher'} · ${esc(u.email)} · signed up ${u.created.slice(0,10)}</small></div>
+      <div><b>${esc(u.name)}</b><small style="display:block;color:var(--ink2);font-size:12px">${u.role==='student'?'Student · Grade '+esc(u.grade||'—')+' · ID '+esc(u.student_id||'—'):'Teacher'} · ${esc(u.email)} · signed up ${u.created.slice(0,10)}</small></div>
       <div><button class="btn sm" onclick="decide(${u.id},true)">Approve</button>
       <button class="btn sm danger" onclick="decide(${u.id},false)">Reject</button></div></div>`).join('')
       ||'<div class="card"><p class="note">No pending accounts — all caught up. 🎉</p></div>';
@@ -431,11 +434,11 @@ async function renderData(pane){
       <td>${p.capacity}</td><td><button class="btn sm grey" onclick='editProgram(${JSON.stringify(p).replace(/'/g,"&#39;")})'>Edit</button>
       <button class="btn sm danger" onclick="delProgram(${p.id})">✕</button></td></tr>`).join('')}</table></div></div>
   <div class="card"><b style="font-size:14px">Students</b>
-    <div class="tbl-wrap"><table><tr><th>Name</th><th>Grade</th><th>Status</th><th>Attendance</th><th></th></tr>
-    ${users.filter(u=>u.role==='student').map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.grade||'—')}</td>
+    <div class="tbl-wrap"><table><tr><th>Name</th><th>Student ID</th><th>Grade</th><th>Status</th><th>Attendance</th><th></th></tr>
+    ${users.filter(u=>u.role==='student').map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.student_id||'—')}</td><td>${esc(u.grade||'—')}</td>
       <td><span class="pill ${u.status==='approved'?'open':u.status==='pending'?'wait':'full'}">${u.status}</span></td>
       <td>${u.attendance_pct}%</td>
-      <td><button class="btn sm danger" onclick="delUser(${u.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="5" class="note">No students yet — they sign up from the landing page.</td></tr>'}</table></div></div>
+      <td><button class="btn sm danger" onclick="delUser(${u.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="6" class="note">No students yet — they sign up from the landing page.</td></tr>'}</table></div></div>
   <div class="card"><b style="font-size:14px">Teachers</b>
     <div class="tbl-wrap"><table><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr>
     ${users.filter(u=>u.role==='teacher').map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
