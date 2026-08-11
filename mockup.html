@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>School Scheduler — Clickable Mockups</title>
+<style>
+  :root{
+    --ink:#1a2233; --ink2:#5b6478; --ink3:#8b93a7; --surface:#f4f6fa; --card:#ffffff;
+    --line:#e3e7ef; --brand:#2f4fb0; --brand-soft:#e8edfb;
+    --open:#15803d; --open-bg:#e5f6ea; --open-line:#9fd8b0;
+    --resv:#1d4ed8; --resv-bg:#e4ecfd; --resv-line:#a9c1f5;
+    --full:#697083; --full-bg:#eceef3; --full-line:#d4d8e1;
+    --wait:#a16207; --wait-bg:#fdf3d7; --wait-line:#e7cd8a;
+    --miss:#b91c1c; --miss-bg:#fdeaea;
+    --r:12px; --shadow:0 1px 3px rgba(20,30,60,.08),0 4px 14px rgba(20,30,60,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--surface);color:var(--ink);line-height:1.45;padding-bottom:60px}
+  /* ---- mockup navigator ---- */
+  .mocknav{position:sticky;top:0;z-index:50;background:#151b2c;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;overflow-x:auto}
+  .mocknav .tag{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9aa4c0;white-space:nowrap}
+  .mocknav button{border:1px solid #39415c;background:#232b44;color:#dfe4f2;border-radius:20px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .mocknav button.on{background:#4c6fe8;border-color:#4c6fe8;color:#fff}
+  .view{display:none;max-width:1080px;margin:0 auto;padding:18px 14px}
+  .view.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+  h2.vh{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin:6px 2px 12px}
+  .btn{display:inline-block;border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff}
+  .btn.ghost{background:var(--card);color:var(--brand);border:1px solid var(--brand)}
+  .btn.sm{padding:6px 11px;font-size:12.5px;border-radius:7px}
+  .btn.grey{background:#eceef3;color:var(--ink2)}
+  .btn.danger{background:#fff;color:var(--miss);border:1px solid #efb9b9}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;border-radius:20px;padding:3px 9px}
+  .pill.open{background:var(--open-bg);color:var(--open)}
+  .pill.full{background:var(--full-bg);color:var(--full)}
+  .pill.resv{background:var(--resv-bg);color:var(--resv)}
+  .pill.wait{background:var(--wait-bg);color:var(--wait)}
+  .pill.type{background:var(--brand-soft);color:var(--brand)}
+  .note{font-size:12.5px;color:var(--ink2)}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:#1a2233;color:#fff;padding:12px 18px;border-radius:10px;font-size:13.5px;z-index:99;max-width:92%;box-shadow:0 6px 24px rgba(0,0,0,.25);display:none}
+  /* ---- landing ---- */
+  .land-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 2px 14px}
+  .school-name{font-size:22px;font-weight:800;letter-spacing:-.01em}
+  .school-name small{display:block;font-size:12px;font-weight:600;color:var(--ink2);letter-spacing:.02em}
+  .login-wrap{position:relative}
+  .login-menu{position:absolute;right:0;top:46px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);width:230px;display:none;z-index:20;overflow:hidden}
+  .login-menu a{display:block;padding:12px 15px;font-size:14px;font-weight:600;color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+  .login-menu a:hover{background:var(--brand-soft)}
+  .login-menu a.signup{color:var(--brand);border-bottom:none}
+  .hero{border-radius:16px;overflow:hidden;position:relative;margin-bottom:14px}
+  .hero-img{height:210px;display:flex;align-items:flex-end;padding:18px;color:#fff;font-weight:700;font-size:15px;text-shadow:0 1px 6px rgba(0,0,0,.45)}
+  .hero-caption{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.45);color:#fff;font-size:11px;padding:4px 10px;border-radius:20px}
+  .photo-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+  .ph{height:96px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-size:12.5px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.4);gap:4px}
+  .ph span{font-size:26px}
+  .g1{background:linear-gradient(135deg,#3b5bcc,#7b93e8)} .g2{background:linear-gradient(135deg,#0e8a5f,#5cc79a)}
+  .g3{background:linear-gradient(135deg,#b3541e,#e8a06a)} .g4{background:linear-gradient(135deg,#6d3fb8,#a98ae0)}
+  .prog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+  .prog{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fff}
+  .prog h4{font-size:15px;margin:6px 0 3px}
+  .prog .meta{font-size:12.5px;color:var(--ink2)}
+  /* ---- shared app header ---- */
+  .apphead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .apphead .who{font-size:17px;font-weight:800}
+  .apphead .who small{display:block;font-weight:600;font-size:12px;color:var(--ink2)}
+  .score{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 16px;text-align:center;box-shadow:var(--shadow);min-width:118px}
+  .score .num{font-size:26px;font-weight:800;color:var(--open);line-height:1.1}
+  .score .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+  .score .thresh{font-size:10.5px;color:var(--ink2);margin-top:3px}
+  .banner{background:var(--brand-soft);border:1px solid #c9d6f5;border-radius:12px;padding:13px 15px;font-size:13.5px;color:#22315e;display:flex;gap:10px;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+  .banner b{display:block;margin-bottom:2px}
+  .banner .x{background:none;border:none;font-size:18px;cursor:pointer;color:#5b6aa0}
+  /* ---- calendar ---- */
+  .weekbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .weekbar .wk{font-size:13px;font-weight:700;background:#fff;border:1px solid var(--line);padding:7px 13px;border-radius:20px;cursor:pointer;color:var(--ink2)}
+  .weekbar .wk.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .cal{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:9px;overflow-x:auto}
+  .cal-scroll{overflow-x:auto;padding-bottom:6px}
+  .day{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px;min-width:150px}
+  .day.today{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
+  .day h5{font-size:12px;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px}
+  .day h5 b{display:block;font-size:15px;color:var(--ink);letter-spacing:0}
+  .sess{border-radius:9px;padding:8px 9px;margin-bottom:7px;font-size:12.5px;cursor:pointer;border:1px solid;transition:transform .06s}
+  .sess:active{transform:scale(.98)}
+  .sess b{display:block;font-size:12.5px}
+  .sess .t{font-size:11px;opacity:.85}
+  .sess.open{background:var(--open-bg);border-color:var(--open-line);color:#0f5e2e}
+  .sess.full{background:var(--full-bg);border-color:var(--full-line);color:var(--full)}
+  .sess.resv{background:var(--resv-bg);border-color:var(--resv-line);color:#1e3a8a}
+  .sess.wait{background:var(--wait-bg);border-color:var(--wait-line);color:var(--wait)}
+  .sess .st{font-size:10.5px;font-weight:800;letter-spacing:.03em}
+  .hist{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+  .hrow{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;background:#fff}
+  .ok{color:var(--open);font-weight:800} .no{color:var(--miss);font-weight:800}
+  /* ---- teacher ---- */
+  .roster-modal{position:fixed;inset:0;background:rgba(15,20,40,.5);display:none;align-items:flex-end;justify-content:center;z-index:60}
+  .roster-modal.on{display:flex}
+  .roster{background:#fff;border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:86vh;overflow-y:auto;padding:18px}
+  .rrow{display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);gap:8px}
+  .rrow .nm{font-size:14px;font-weight:600}
+  .rrow .nm small{display:block;font-weight:500;color:var(--ink3);font-size:11.5px}
+  .att-btns{display:flex;gap:6px}
+  .att{border:1.5px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink2)}
+  .att.p.on{background:var(--open-bg);border-color:var(--open);color:var(--open)}
+  .att.a.on{background:var(--miss-bg);border-color:var(--miss);color:var(--miss)}
+  .flag{font-size:10.5px;font-weight:800;color:var(--wait);background:var(--wait-bg);border-radius:6px;padding:2px 6px}
+  textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px;font-size:13px;font-family:inherit;margin-top:6px}
+  /* ---- admin ---- */
+  .atabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:14px;padding-bottom:2px}
+  .atabs button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:700;color:var(--ink2);cursor:pointer;white-space:nowrap}
+  .atabs button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  .apane{display:none}.apane.on{display:block}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+  .kpi .n{font-size:24px;font-weight:800}
+  .kpi .l{font-size:11.5px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);padding:8px 8px;border-bottom:2px solid var(--line)}
+  td{padding:9px 8px;border-bottom:1px solid var(--line)}
+  .tbl-wrap{overflow-x:auto}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:4px}
+  .field input,.field select{width:100%;max-width:340px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit;background:#fff}
+  .appr{border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px;background:#fff;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+  .appr .info b{font-size:14px}
+  .appr .info small{display:block;color:var(--ink2);font-size:12px}
+  .switch{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600}
+  .photo-admin{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+  .ph-edit{position:relative}
+  .ph-edit .rm{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:50%;width:22px;height:22px;font-size:12px;cursor:pointer}
+  .ph-add{height:96px;border:2px dashed #b9c2d8;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--brand);font-weight:700;font-size:13px;cursor:pointer;background:#fbfcff}
+  @media (max-width:700px){ .cal{grid-template-columns:repeat(5,150px)} }
+</style>
+</head>
+<body>
+
+<div class="mocknav">
+  <span class="tag">Mockup&nbsp;views</span>
+  <button class="on" data-v="landing" onclick="showView('landing',this)">1 · Landing</button>
+  <button data-v="student" onclick="showView('student',this)">2 · Student</button>
+  <button data-v="teacher" onclick="showView('teacher',this)">3 · Teacher</button>
+  <button data-v="admin" onclick="showView('admin',this)">4 · Admin</button>
+</div>
+
+<!-- ============ 1. LANDING ============ -->
+<section class="view on" id="v-landing">
+  <h2 class="vh">Public landing page — branding & photos are admin-controlled</h2>
+  <div class="land-top">
+    <div class="school-name"><span class="js-school">Lincoln Elementary</span><small class="js-district">Jefferson County Schools · Classes & Afterschool Programs</small></div>
+    <div class="login-wrap">
+      <button class="btn" onclick="toggleLogin()">Log In ▾</button>
+      <div class="login-menu" id="loginMenu">
+        <a href="#" onclick="pickLogin('Student');return false">🎒 Student Login</a>
+        <a href="#" onclick="pickLogin('Teacher');return false">📋 Teacher Login</a>
+        <a href="#" onclick="pickLogin('Admin');return false">🔑 Admin Login</a>
+        <a href="#" class="signup" onclick="toast('Sign-up flow: choose your school → choose Student or Teacher → basic info → account goes to the admin approval queue.');return false">＋ Sign Up for Account</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-img g1">Fall registration is open — reserve your spot for classes & afterschool programs</div>
+    <div class="hero-caption">📷 Admin-uploaded photo</div>
+  </div>
+
+  <div class="photo-strip">
+    <div class="ph g2"><span>♟️</span>Chess Club</div>
+    <div class="ph g3"><span>🏃</span>Track & Field</div>
+    <div class="ph g4"><span>🎨</span>Art Studio</div>
+    <div class="ph g1"><span>🤖</span>Robotics Lab</div>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:16px;margin-bottom:10px">This season's programs</h3>
+    <div class="prog-grid">
+      <div class="prog"><span class="pill type">Afterschool</span><h4>Chess Club</h4><div class="meta">Mon & Wed · 3:30–4:30 PM<br>Aug 10 – Dec 18 · Rm 104</div></div>
+      <div class="prog"><span class="pill type">Afterschool</span><h4>Track & Field</h4><div class="meta">Tue & Thu · 3:30–5:00 PM<br>Aug 10 – Oct 30 · Field</div></div>
+      <div class="prog"><span class="pill type">Class</span><h4>Art Studio</h4><div class="meta">Mon & Fri · 1:00–2:00 PM<br>Aug 10 – Dec 18 · Rm 210</div></div>
+      <div class="prog"><span class="pill type">Afterschool</span><h4>Robotics Lab</h4><div class="meta">Wed · 3:30–5:00 PM<br>Aug 12 – Nov 20 · STEM Lab</div></div>
+      <div class="prog"><span class="pill type">Class</span><h4>Coding Basics</h4><div class="meta">Tue & Thu · 3:30–4:30 PM<br>Aug 11 – Dec 17 · Rm 118</div></div>
+      <div class="prog"><span class="pill type">Afterschool</span><h4>Drama Club</h4><div class="meta">Fri · 3:30–5:00 PM<br>Aug 14 – Dec 18 · Auditorium</div></div>
+    </div>
+  </div>
+  <p class="note">New here? Create an account with <b>Sign Up</b> — an administrator approves it before you can reserve or teach.</p>
+</section>
+
+<!-- ============ 2. STUDENT ============ -->
+<section class="view" id="v-student">
+  <h2 class="vh">Student view — Maya Torres, approved account</h2>
+  <div class="apphead">
+    <div class="who">Hi, Maya 👋<small class="js-school">Lincoln Elementary</small></div>
+    <div class="score">
+      <div class="num">92%</div>
+      <div class="lbl">✔ Attendance</div>
+      <div class="thresh">Below <b>80%</b> your booking is limited to waitlist-only</div>
+    </div>
+  </div>
+
+  <div class="banner" id="firstBanner">
+    <div><b>Welcome! Here's how it works.</b>This is where you choose classes and afterschool programs and reserve a spot. <span style="color:var(--open);font-weight:700">Green = open, tap to reserve.</span> Grey = full, tap to join the waitlist. Your reservation is locked in unless you cancel it.</div>
+    <button class="x" onclick="document.getElementById('firstBanner').style.display='none'">✕</button>
+  </div>
+
+  <div class="weekbar">
+    <button class="wk on" onclick="pickWeek(0,this)">This Week · Aug 10–14</button>
+    <button class="wk" onclick="pickWeek(1,this)">Next Week · Aug 17–21</button>
+    <button class="wk" onclick="toast('Date-range picker: browse other dates. Reserving is only allowed inside the booking window set by your admin (currently 14 days).')">📅 Other dates</button>
+  </div>
+
+  <div class="cal-scroll"><div class="cal" id="calWeek0">
+    <div class="day"><h5>Mon<b>Aug 10</b></h5>
+      <div class="sess resv" onclick="toast('Past date — this session already happened. See your history below.')"><b>Art Studio</b><span class="t">1:00–2:00 · Rm 210</span><span class="st">✔ ATTENDED</span></div>
+      <div class="sess resv" onclick="toast('Past date — this session already happened. See your history below.')"><b>Chess Club</b><span class="t">3:30–4:30 · Rm 104</span><span class="st">✔ ATTENDED</span></div>
+    </div>
+    <div class="day today"><h5>Tue · Today<b>Aug 11</b></h5>
+      <div class="sess resv" data-k="track-tue1"><b>Track & Field</b><span class="t">3:30–5:00 · Field</span><span class="st">🔒 RESERVED — tap to cancel</span></div>
+      <div class="sess open" data-k="coding-tue1" data-conflict="Track & Field (Tue 3:30–5:00)"><b>Coding Basics</b><span class="t">3:30–4:30 · Rm 118</span><span class="st">● OPEN · 5 spots — tap to reserve</span></div>
+    </div>
+    <div class="day"><h5>Wed<b>Aug 12</b></h5>
+      <div class="sess resv" data-k="chess-wed1"><b>Chess Club</b><span class="t">3:30–4:30 · Rm 104</span><span class="st">🔒 RESERVED — tap to cancel</span></div>
+      <div class="sess open" data-k="robot-wed1" data-conflict="Chess Club (Wed 3:30–4:30)"><b>Robotics Lab</b><span class="t">3:30–5:00 · STEM Lab</span><span class="st">● OPEN · 2 spots — tap to reserve</span></div>
+    </div>
+    <div class="day"><h5>Thu<b>Aug 13</b></h5>
+      <div class="sess resv" data-k="track-thu1"><b>Track & Field</b><span class="t">3:30–5:00 · Field</span><span class="st">🔒 RESERVED — tap to cancel</span></div>
+      <div class="sess open" data-k="coding-thu1" data-conflict="Track & Field (Thu 3:30–5:00)"><b>Coding Basics</b><span class="t">3:30–4:30 · Rm 118</span><span class="st">● OPEN · 5 spots — tap to reserve</span></div>
+    </div>
+    <div class="day"><h5>Fri<b>Aug 14</b></h5>
+      <div class="sess open" data-k="art-fri1"><b>Art Studio</b><span class="t">1:00–2:00 · Rm 210</span><span class="st">● OPEN · 8 spots — tap to reserve</span></div>
+      <div class="sess full" data-k="drama-fri1"><b>Drama Club</b><span class="t">3:30–5:00 · Auditorium</span><span class="st">⊘ FULL — tap to join waitlist</span></div>
+    </div>
+  </div></div>
+
+  <div class="cal-scroll" style="display:none" id="calWeek1wrap"><div class="cal">
+    <div class="day"><h5>Mon<b>Aug 17</b></h5>
+      <div class="sess open" data-k="art-mon2"><b>Art Studio</b><span class="t">1:00–2:00 · Rm 210</span><span class="st">● OPEN · 6 spots — tap to reserve</span></div>
+      <div class="sess open" data-k="chess-mon2"><b>Chess Club</b><span class="t">3:30–4:30 · Rm 104</span><span class="st">● OPEN · 4 spots — tap to reserve</span></div>
+    </div>
+    <div class="day"><h5>Tue<b>Aug 18</b></h5>
+      <div class="sess open" data-k="track-tue2"><b>Track & Field</b><span class="t">3:30–5:00 · Field</span><span class="st">● OPEN · 3 spots — tap to reserve</span></div>
+      <div class="sess open" data-k="coding-tue2"><b>Coding Basics</b><span class="t">3:30–4:30 · Rm 118</span><span class="st">● OPEN · 7 spots — tap to reserve</span></div>
+    </div>
+    <div class="day"><h5>Wed<b>Aug 19</b></h5>
+      <div class="sess open" data-k="chess-wed2"><b>Chess Club</b><span class="t">3:30–4:30 · Rm 104</span><span class="st">● OPEN · 4 spots — tap to reserve</span></div>
+      <div class="sess full" data-k="robot-wed2"><b>Robotics Lab</b><span class="t">3:30–5:00 · STEM Lab</span><span class="st">⊘ FULL — tap to join waitlist</span></div>
+    </div>
+    <div class="day"><h5>Thu<b>Aug 20</b></h5>
+      <div class="sess open" data-k="track-thu2"><b>Track & Field</b><span class="t">3:30–5:00 · Field</span><span class="st">● OPEN · 3 spots — tap to reserve</span></div>
+    </div>
+    <div class="day"><h5>Fri<b>Aug 21</b></h5>
+      <div class="sess open" data-k="art-fri2"><b>Art Studio</b><span class="t">1:00–2:00 · Rm 210</span><span class="st">● OPEN · 6 spots — tap to reserve</span></div>
+      <div class="sess full" data-k="drama-fri2"><b>Drama Club</b><span class="t">3:30–5:00 · Auditorium</span><span class="st">⊘ FULL — tap to join waitlist</span></div>
+    </div>
+  </div></div>
+
+  <div class="card" style="margin-top:14px">
+    <h3 style="font-size:15px;margin-bottom:9px">Your past sessions <span class="note">(only classes you reserved appear here)</span></h3>
+    <div class="hist">
+      <div class="hrow"><span>Mon Aug 3 · Chess Club</span><span class="ok">✔ Attended</span></div>
+      <div class="hrow"><span>Tue Aug 4 · Track & Field</span><span class="ok">✔ Attended</span></div>
+      <div class="hrow"><span>Wed Aug 5 · Chess Club</span><span class="no">✘ No-show</span></div>
+      <div class="hrow"><span>Thu Aug 6 · Track & Field</span><span class="ok">✔ Attended</span></div>
+      <div class="hrow"><span>Fri Aug 7 · Art Studio</span><span class="ok">✔ Attended</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. TEACHER ============ -->
+<section class="view" id="v-teacher">
+  <h2 class="vh">Teacher view — Coach Rivera (Chess Club · Robotics Lab)</h2>
+  <div class="apphead">
+    <div class="who">Coach Rivera<small class="js-school">Lincoln Elementary</small></div>
+    <div class="score"><div class="num" style="color:var(--brand)">2</div><div class="lbl">Programs</div><div class="thresh">31 students enrolled this window</div></div>
+  </div>
+
+  <div class="weekbar">
+    <button class="wk on">This Week · Aug 10–14</button>
+    <button class="wk" onclick="toast('Same two-week calendar as students — filtered to the sessions you teach.')">Next Week · Aug 17–21</button>
+  </div>
+
+  <div class="cal-scroll"><div class="cal">
+    <div class="day"><h5>Mon<b>Aug 10</b></h5>
+      <div class="sess resv" onclick="toast('Past session — attendance was recorded: 14 present, 2 absent.')"><b>Chess Club</b><span class="t">3:30–4:30</span><span class="st">✔ ATTENDANCE DONE 14/16</span></div>
+    </div>
+    <div class="day today"><h5>Tue · Today<b>Aug 11</b></h5>
+      <div class="sess wait" onclick="openRoster()"><b>Chess Club — extra session</b><span class="t">3:30–4:30 · Rm 104</span><span class="st">⏰ TODAY — tap to take attendance</span></div>
+    </div>
+    <div class="day"><h5>Wed<b>Aug 12</b></h5>
+      <div class="sess open" onclick="openRoster()"><b>Chess Club</b><span class="t">3:30–4:30</span><span class="st">12/16 enrolled — tap for roster</span></div>
+      <div class="sess full" onclick="openRoster()"><b>Robotics Lab</b><span class="t">3:30–5:00</span><span class="st">● FULL 18/18 · waitlist 3 — tap for roster</span></div>
+    </div>
+    <div class="day"><h5>Thu<b>Aug 13</b></h5><p class="note" style="padding:4px">No sessions</p></div>
+    <div class="day"><h5>Fri<b>Aug 14</b></h5><p class="note" style="padding:4px">No sessions</p></div>
+  </div></div>
+  <p class="note" style="margin-top:6px">● A <b>full</b> session shows a green "FULL" dot on your calendar. Tap any session to open its roster.</p>
+</section>
+
+<div class="roster-modal" id="rosterModal">
+  <div class="roster">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <h3 style="font-size:17px">Chess Club — Tue Aug 11, 3:30 PM</h3>
+      <button class="x" style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeRoster()">✕</button>
+    </div>
+    <p class="note" style="margin-bottom:10px">Rm 104 · 8 of 16 enrolled · Attendance is required during class for record-keeping. <span id="attCount" style="font-weight:700;color:var(--ink)">0 of 8 marked</span></p>
+    <div id="rosterRows"></div>
+    <div style="margin-top:12px">
+      <label style="font-size:12px;font-weight:700;color:var(--ink2)">Session notes (visible to admin)</label>
+      <textarea rows="2" placeholder="e.g., Covered opening strategies; Devon needs a make-up session"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn" onclick="saveAttendance()">Save attendance</button>
+      <button class="btn ghost sm" onclick="toast('Real app: exports this roster as a printable PDF / CSV.')">⤓ Export roster</button>
+      <button class="btn ghost sm" onclick="toast('Real app: sends an announcement to everyone on this roster (and their parents, if enabled).')">📣 Message roster</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4. ADMIN ============ -->
+<section class="view" id="v-admin">
+  <h2 class="vh">Admin view — multi-school control center</h2>
+  <div class="apphead">
+    <div class="who">Admin Console<small>Jefferson County Schools</small></div>
+    <div class="field" style="margin:0">
+      <label>School location</label>
+      <select onchange="switchSchool(this.value)">
+        <option>Lincoln Elementary</option>
+        <option>Roosevelt Middle School</option>
+        <option>Washington High School</option>
+        <option>— All Schools (district rollup) —</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="atabs">
+    <button class="on" onclick="pickTab('dash',this)">📊 Dashboard</button>
+    <button onclick="pickTab('appr',this)">✅ Approvals <span class="pill wait" id="apprCount">4</span></button>
+    <button onclick="pickTab('data',this)">🗂 Datasets</button>
+    <button onclick="pickTab('brand',this)">🎨 Branding</button>
+    <button onclick="pickTab('set',this)">⚙️ Settings</button>
+  </div>
+
+  <div class="apane on" id="p-dash">
+    <div class="kpis">
+      <div class="kpi"><div class="n">128</div><div class="l">Reservations this window</div></div>
+      <div class="kpi"><div class="n">82%</div><div class="l">Avg. fill rate</div></div>
+      <div class="kpi"><div class="n">91%</div><div class="l">Attendance rate</div></div>
+      <div class="kpi"><div class="n" style="color:var(--wait)">4</div><div class="l">Pending approvals</div></div>
+    </div>
+    <div class="card"><b style="font-size:14px">Needs attention</b>
+      <p class="note" style="margin-top:6px">⚠️ 3 students are below the 80% attendance threshold (booking limited to waitlist-only).<br>⚠️ Robotics Lab (Wed) has a 3-person waitlist — consider adding capacity or a second session.<br>✅ All of last week's attendance was recorded by teachers.</p>
+    </div>
+  </div>
+
+  <div class="apane" id="p-appr">
+    <div class="appr" id="a1"><div class="info"><b>Jordan Lee</b><small>Student · Grade 5 · signed up Aug 10</small></div>
+      <div><button class="btn sm" onclick="approve('a1','Jordan Lee approved — they can now reserve classes.')">Approve</button> <button class="btn sm danger" onclick="approve('a1','Jordan Lee rejected.')">Reject</button></div></div>
+    <div class="appr" id="a2"><div class="info"><b>Priya Nair</b><small>Student · Grade 4 · signed up Aug 10</small></div>
+      <div><button class="btn sm" onclick="approve('a2','Priya Nair approved — they can now reserve classes.')">Approve</button> <button class="btn sm danger" onclick="approve('a2','Priya Nair rejected.')">Reject</button></div></div>
+    <div class="appr" id="a3"><div class="info"><b>Mr. Daniels</b><small>Teacher · signed up Aug 9 · assign program(s) on approval</small>
+      <select style="margin-top:5px;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12.5px"><option>Assign: Drama Club</option><option>Assign: Coding Basics</option><option>Assign: multiple…</option></select></div>
+      <div><button class="btn sm" onclick="approve('a3','Mr. Daniels approved and assigned to Drama Club.')">Approve</button> <button class="btn sm danger" onclick="approve('a3','Mr. Daniels rejected.')">Reject</button></div></div>
+    <div class="appr" id="a4"><div class="info"><b>Sam Okafor</b><small>Student · Grade 6 · signed up Aug 8</small></div>
+      <div><button class="btn sm" onclick="approve('a4','Sam Okafor approved — they can now reserve classes.')">Approve</button> <button class="btn sm danger" onclick="approve('a4','Sam Okafor rejected.')">Reject</button></div></div>
+    <p class="note">Students and teachers create their own accounts; nothing works until you approve them here.</p>
+  </div>
+
+  <div class="apane" id="p-data">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <b style="font-size:14px">Programs & Classes</b>
+        <span><button class="btn sm" onclick="toast('Real app: form to add a program — name, type (class vs afterschool), teacher, room, capacity, days of week, time, date range, photo.')">＋ Add</button> <button class="btn sm grey" onclick="toast('Real app: upload a CSV to bulk-import this dataset. You can also build everything by hand — no import required.')">⤒ Import CSV</button></span>
+      </div>
+      <div class="tbl-wrap"><table>
+        <tr><th>Name</th><th>Type</th><th>Teacher</th><th>Days · Time</th><th>Dates</th><th>Cap.</th><th></th></tr>
+        <tr><td>Chess Club</td><td><span class="pill type">Afterschool</span></td><td>Rivera</td><td>Mon/Wed 3:30–4:30</td><td>Aug 10–Dec 18</td><td>16</td><td><button class="btn sm grey" onclick="toast('Real app: edit this program in place.')">Edit</button></td></tr>
+        <tr><td>Track & Field</td><td><span class="pill type">Afterschool</span></td><td>Kim</td><td>Tue/Thu 3:30–5:00</td><td>Aug 10–Oct 30</td><td>24</td><td><button class="btn sm grey" onclick="toast('Real app: edit this program in place.')">Edit</button></td></tr>
+        <tr><td>Art Studio</td><td><span class="pill type">Class</span></td><td>Moreno</td><td>Mon/Fri 1:00–2:00</td><td>Aug 10–Dec 18</td><td>18</td><td><button class="btn sm grey" onclick="toast('Real app: edit this program in place.')">Edit</button></td></tr>
+        <tr><td>Robotics Lab</td><td><span class="pill type">Afterschool</span></td><td>Rivera</td><td>Wed 3:30–5:00</td><td>Aug 12–Nov 20</td><td>18</td><td><button class="btn sm grey" onclick="toast('Real app: edit this program in place.')">Edit</button></td></tr>
+      </table></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <b style="font-size:14px">Student Roster (main)</b>
+        <span><button class="btn sm" onclick="toast('Real app: add a student manually.')">＋ Add</button> <button class="btn sm grey" onclick="toast('Real app: bulk-import students from CSV.')">⤒ Import CSV</button></span>
+      </div>
+      <div class="tbl-wrap"><table>
+        <tr><th>Name</th><th>Grade</th><th>Status</th><th>Attendance</th><th></th></tr>
+        <tr><td>Maya Torres</td><td>5</td><td><span class="pill open">✔ Approved</span></td><td>92%</td><td><button class="btn sm grey" onclick="toast('Real app: edit student record.')">Edit</button></td></tr>
+        <tr><td>Devon Park</td><td>6</td><td><span class="pill open">✔ Approved</span></td><td style="color:var(--miss);font-weight:700">64% ⚠</td><td><button class="btn sm grey" onclick="toast('Real app: edit student record.')">Edit</button></td></tr>
+        <tr><td>Jordan Lee</td><td>5</td><td><span class="pill wait">⏳ Pending</span></td><td>—</td><td><button class="btn sm grey" onclick="toast('Real app: edit student record.')">Edit</button></td></tr>
+      </table></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <b style="font-size:14px">Teacher Roster</b>
+        <span><button class="btn sm" onclick="toast('Real app: add a teacher manually.')">＋ Add</button> <button class="btn sm grey" onclick="toast('Real app: bulk-import teachers from CSV.')">⤒ Import CSV</button></span>
+      </div>
+      <div class="tbl-wrap"><table>
+        <tr><th>Name</th><th>Programs</th><th>Status</th><th></th></tr>
+        <tr><td>Coach Rivera</td><td>Chess Club, Robotics Lab</td><td><span class="pill open">✔ Approved</span></td><td><button class="btn sm grey" onclick="toast('Real app: edit teacher & program assignments.')">Edit</button></td></tr>
+        <tr><td>Ms. Kim</td><td>Track & Field</td><td><span class="pill open">✔ Approved</span></td><td><button class="btn sm grey" onclick="toast('Real app: edit teacher & program assignments.')">Edit</button></td></tr>
+        <tr><td>Mr. Daniels</td><td>—</td><td><span class="pill wait">⏳ Pending</span></td><td><button class="btn sm grey" onclick="toast('Real app: edit teacher & program assignments.')">Edit</button></td></tr>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="apane" id="p-brand">
+    <div class="card">
+      <div class="field"><label>School name (shown on the landing page — try editing it, then check the Landing view)</label>
+        <input value="Lincoln Elementary" oninput="renameSchool(this.value)"></div>
+      <div class="field"><label>District / subtitle</label>
+        <input value="Jefferson County Schools · Classes & Afterschool Programs" oninput="document.querySelectorAll('.js-district').forEach(e=>e.textContent=this.value)"></div>
+    </div>
+    <div class="card">
+      <b style="font-size:14px">Marketing photos</b>
+      <p class="note" style="margin:4px 0 10px">These appear in the landing-page hero and photo strip. Drag to reorder in the real app.</p>
+      <div class="photo-admin">
+        <div class="ph-edit"><div class="ph g2"><span>♟️</span>Chess Club</div><button class="rm" onclick="toast('Real app: removes this photo.')">✕</button></div>
+        <div class="ph-edit"><div class="ph g3"><span>🏃</span>Track & Field</div><button class="rm" onclick="toast('Real app: removes this photo.')">✕</button></div>
+        <div class="ph-edit"><div class="ph g4"><span>🎨</span>Art Studio</div><button class="rm" onclick="toast('Real app: removes this photo.')">✕</button></div>
+        <div class="ph-edit"><div class="ph g1"><span>🤖</span>Robotics Lab</div><button class="rm" onclick="toast('Real app: removes this photo.')">✕</button></div>
+        <div class="ph-add" onclick="toast('Real app: upload a photo (JPG/PNG) with a caption. Each school location has its own photo set.')">＋ Upload photo</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="apane" id="p-set">
+    <div class="card">
+      <div class="field"><label>Booking window (days students can see & reserve ahead)</label><input type="number" value="14"></div>
+      <div class="field"><label>Attendance threshold (%) — below this, limitations apply</label><input type="number" value="80"></div>
+      <div class="field"><label>Limitation when below threshold</label>
+        <select><option>Waitlist-only booking</option><option>Booking frozen until admin resets</option><option>Can only book 1 day ahead</option></select></div>
+      <div class="field"><label>Waitlist auto-promotion when a spot opens</label>
+        <select><option>On — promote & notify automatically</option><option>Off — admin promotes manually</option></select></div>
+      <button class="btn" onclick="toast('Settings saved for Lincoln Elementary. Each school location keeps its own settings.')">Save settings</button>
+      <p class="note" style="margin-top:10px">Settings are per-school. Use the school switcher above to configure another location.</p>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  function showView(v,btn){
+    document.querySelectorAll('.view').forEach(e=>e.classList.remove('on'));
+    document.getElementById('v-'+v).classList.add('on');
+    document.querySelectorAll('.mocknav button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    window.scrollTo(0,0);
+  }
+  var tt;
+  function toast(msg){
+    var t=document.getElementById('toast'); t.textContent=msg; t.style.display='block';
+    clearTimeout(tt); tt=setTimeout(function(){t.style.display='none'},4200);
+  }
+  function toggleLogin(){var m=document.getElementById('loginMenu');m.style.display=m.style.display==='block'?'none':'block'}
+  function pickLogin(r){toggleLogin();toast(r+' login → email + password. Unapproved accounts land on a “pending admin approval” screen.')}
+  function pickWeek(i,btn){
+    document.querySelectorAll('#v-student .wk').forEach(b=>b.classList.remove('on')); btn.classList.add('on');
+    document.getElementById('calWeek0').parentElement.style.display=i===0?'block':'none';
+    document.getElementById('calWeek1wrap').style.display=i===1?'block':'none';
+  }
+  /* student reserve / cancel / waitlist with overlap guard */
+  document.querySelectorAll('#v-student .sess[data-k]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var st=el.querySelector('.st');
+      if(el.classList.contains('open')){
+        if(el.dataset.conflict){
+          toast('⛔ Schedule conflict: this overlaps your reservation for '+el.dataset.conflict+'. Cancel that one first if you want to switch.');
+          return;
+        }
+        el.classList.remove('open'); el.classList.add('resv');
+        st.textContent='🔒 RESERVED — tap to cancel';
+        toast('Reserved! Your spot is locked in unless you cancel.');
+      } else if(el.classList.contains('resv')){
+        if(confirm('Cancel this reservation? Your spot goes to the first student on the waitlist.')){
+          el.classList.remove('resv'); el.classList.add('open');
+          st.textContent='● OPEN — tap to reserve';
+          toast('Reservation cancelled. The spot is open again.');
+        }
+      } else if(el.classList.contains('full')){
+        el.classList.remove('full'); el.classList.add('wait');
+        st.textContent='⏳ WAITLIST #3 — tap to leave';
+        toast('Added to the waitlist at position #3. If a spot opens you are promoted automatically and notified.');
+      } else if(el.classList.contains('wait')){
+        el.classList.remove('wait'); el.classList.add('full');
+        st.textContent='⊘ FULL — tap to join waitlist';
+        toast('Removed from the waitlist.');
+      }
+    });
+  });
+  /* teacher roster */
+  var ROSTER=[['Maya Torres','92% attendance',''],['Devon Park','64% attendance','LOW ATTENDANCE'],['Priya Nair','96% attendance',''],['Sam Okafor','88% attendance',''],['Jordan Lee','first session',''],['Ava Chen','90% attendance',''],['Leo Martin','71% attendance','LOW ATTENDANCE'],['Zoe Adams','94% attendance','']];
+  function openRoster(){
+    var box=document.getElementById('rosterRows'); box.innerHTML='';
+    ROSTER.forEach(function(r,i){
+      var d=document.createElement('div'); d.className='rrow';
+      d.innerHTML='<div class="nm">'+r[0]+(r[2]?' <span class="flag">⚠ '+r[2]+'</span>':'')+'<small>'+r[1]+'</small></div>'+
+        '<div class="att-btns"><button class="att p" onclick="mark(this,1)">✔ Present</button><button class="att a" onclick="mark(this,0)">✘ Absent</button></div>';
+      box.appendChild(d);
+    });
+    updateCount();
+    document.getElementById('rosterModal').classList.add('on');
+  }
+  function closeRoster(){document.getElementById('rosterModal').classList.remove('on')}
+  function mark(btn,p){
+    var row=btn.parentElement;
+    row.querySelectorAll('.att').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on'); updateCount();
+  }
+  function updateCount(){
+    var marked=document.querySelectorAll('#rosterRows .att.on').length;
+    document.getElementById('attCount').textContent=marked+' of 8 marked';
+  }
+  function saveAttendance(){
+    var marked=document.querySelectorAll('#rosterRows .att.on').length;
+    if(marked<8){ toast('⚠ '+(8-marked)+' student(s) unmarked — mark everyone before saving (required for record-keeping).'); return; }
+    closeRoster(); toast('Attendance saved. Students see ✔ or ✘ on their history, and their attendance % updates.');
+  }
+  /* admin */
+  function pickTab(t,btn){
+    document.querySelectorAll('.apane').forEach(e=>e.classList.remove('on'));
+    document.getElementById('p-'+t).classList.add('on');
+    document.querySelectorAll('.atabs button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+  }
+  var apprLeft=4;
+  function approve(id,msg){
+    document.getElementById(id).style.display='none';
+    apprLeft--; document.getElementById('apprCount').textContent=apprLeft;
+    toast(msg);
+  }
+  function switchSchool(v){
+    if(v.indexOf('All Schools')>-1){ toast('District rollup: combined dashboard across every location. Each school keeps its own branding, rosters, programs and settings.'); return; }
+    renameSchool(v);
+    toast('Now managing '+v+'. Branding, datasets, approvals and settings all switch to this location.');
+  }
+  function renameSchool(v){ document.querySelectorAll('.js-school').forEach(e=>e.textContent=v); }
+</script>
+</body>
+</html>
