@@ -106,8 +106,8 @@
   .guide .c-full{background:var(--full-bg);border-color:var(--full-line);color:var(--full)}
   .guide .c-resv{background:var(--resv-bg);border-color:var(--resv-line);color:#1e3a8a}
   .guide .c-wait{background:var(--wait-bg);border-color:var(--wait-line);color:var(--wait)}
-  /* ---- tablet / iPad layout (768px and up) ---- */
-  @media(min-width:768px){
+  /* ---- tablet / iPad layout (620px and up) ---- */
+  @media(min-width:620px){
     .wrap{padding:22px 24px}
     .day{min-width:0;padding:12px}
     .cal{grid-auto-columns:minmax(135px,1fr);gap:11px}
@@ -541,10 +541,10 @@ function showGuide(){
   <div style="display:flex;justify-content:space-between;align-items:center">
   <h3 class="sec" style="margin:0">How the app works</h3>
   <button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeModal()">✕</button></div>
-  ${role==='student'?student+teacher.replace('<h4>📋 For teachers</h4>','<h4>📋 What teachers see</h4>'):''}
+  ${role==='student'?student:''}
   ${role==='teacher'?teacher+student.replace('<h4>🎒 For students</h4>','<h4>🎒 What students see</h4>'):''}
   ${role==='admin'?admin+student+teacher:''}
-  ${!role?start+student+teacher+admin:''}
+  ${!role?start+student:''}
   <p style="margin-top:14px"><button class="btn" onclick="closeModal()">Got it</button></p></div>`);
 }
 
