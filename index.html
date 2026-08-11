@@ -42,6 +42,7 @@
   .score .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
   .score .thresh{font-size:10.5px;color:var(--ink2);margin-top:3px;max-width:170px}
   .banner{background:var(--brand-soft);border:1px solid #c9d6f5;border-radius:12px;padding:13px 15px;font-size:13.5px;color:#22315e;display:flex;gap:10px;justify-content:space-between;margin-bottom:14px}
+  .banner b{display:block;margin-bottom:2px}
   .banner .x{background:none;border:none;font-size:18px;cursor:pointer;color:#5b6aa0}
   .cal-scroll{overflow-x:auto;padding-bottom:6px}
   .cal{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(160px,1fr);gap:9px}
@@ -95,12 +96,50 @@
   h3.sec{font-size:15px;margin-bottom:10px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   @media(max-width:520px){.row2{grid-template-columns:1fr}}
+  /* ---- help guide ---- */
+  .help-btn{background:#232b44;border:1px solid #39415c;color:#dfe4f2;border-radius:20px;padding:7px 13px;font-size:13px;font-weight:700;cursor:pointer}
+  .guide h4{font-size:15px;margin:16px 0 6px;display:flex;align-items:center;gap:8px}
+  .guide p,.guide li{font-size:13.5px;color:var(--ink2);margin-bottom:6px}
+  .guide ul{padding-left:18px;margin-bottom:4px}
+  .guide .chip{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:700;border:1px solid}
+  .guide .c-open{background:var(--open-bg);border-color:var(--open-line);color:#0f5e2e}
+  .guide .c-full{background:var(--full-bg);border-color:var(--full-line);color:var(--full)}
+  .guide .c-resv{background:var(--resv-bg);border-color:var(--resv-line);color:#1e3a8a}
+  .guide .c-wait{background:var(--wait-bg);border-color:var(--wait-line);color:var(--wait)}
+  /* ---- tablet / iPad layout (768px and up) ---- */
+  @media(min-width:768px){
+    .wrap{padding:22px 24px}
+    .day{min-width:0;padding:12px}
+    .cal{grid-auto-columns:minmax(135px,1fr);gap:11px}
+    .sess{font-size:13px;padding:10px}
+    .sess .t{font-size:11.5px}
+    .day h5 b{font-size:16px}
+    .score{min-width:150px;padding:12px 20px}
+    .score .num{font-size:30px}
+    .hist{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+    .modal{align-items:center;padding:20px}
+    .sheet{border-radius:18px;max-height:82vh}
+    .prog-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+    .hero-inner{min-height:240px;font-size:18px}
+    .photo-strip{grid-template-columns:repeat(4,1fr)}
+    .ph{height:120px}
+    .kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+    header.app{padding:14px 24px}
+    .who{font-size:20px}
+  }
+  @media(min-width:1100px){
+    .cal{grid-auto-columns:minmax(150px,1fr)}
+    .hist{grid-template-columns:1fr 1fr 1fr}
+  }
 </style>
 </head>
 <body>
 <header class="app" id="hdr" style="display:none">
   <div class="t" id="hdrTitle">School Scheduler<small id="hdrSub"></small></div>
-  <button class="btn sm ghost" style="border-color:#39415c;color:#dfe4f2;background:#232b44" onclick="logout()">Log out</button>
+  <div style="display:flex;gap:8px">
+    <button class="help-btn" onclick="showGuide()">❓ How it works</button>
+    <button class="btn sm ghost" style="border-color:#39415c;color:#dfe4f2;background:#232b44" onclick="logout()">Log out</button>
+  </div>
 </header>
 <div class="wrap" id="app"><p class="note" style="padding:30px;text-align:center">Loading…</p></div>
 <div class="toast" id="toast"></div>
@@ -167,7 +206,8 @@ async function renderLanding(){
       <div class="meta">${daysLabel(p.days)} · ${t12(p.time_start)}–${t12(p.time_end)}<br>
       ${esc(p.date_start)} → ${esc(p.date_end)} · ${esc(p.room)}${p.teacher?' · '+esc(p.teacher):''}</div></div>`).join('')||'<p class="note">No programs yet.</p>'}
     </div></div>
-  <p class="note">New here? <b>Sign Up</b> — an administrator approves your account before you can reserve or teach.</p>`;
+  <p class="note">New here? <b>Sign Up</b> — an administrator approves your account before you can reserve or teach.
+  &nbsp;·&nbsp; <a href="#" onclick="showGuide();return false" style="color:var(--brand);font-weight:700">❓ How the app works</a></p>`;
 }
 const daysLabel=days=>days.split(',').map(n=>['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][+n]).join(' & ');
 
@@ -470,6 +510,42 @@ function uploadPhoto(input){
 }
 async function delPhoto(id){
   try{await api('/api/admin/photos/'+id,{method:'DELETE'});toast('Photo removed.');renderAdmin();}catch(e){toast(e.message)}
+}
+
+/* ---------- how it works guide ---------- */
+function showGuide(){
+  const role=ME?ME.role:null;
+  const student=`<h4>🎒 For students</h4>
+  <p>Your calendar shows this week and next (tap <b>▸ Later</b> to look ahead). Each colored box is one session:</p>
+  <ul>
+    <li><span class="chip c-open">Green — OPEN</span> has spots left. Tap it to <b>reserve</b>.</li>
+    <li><span class="chip c-full">Grey — FULL</span> has no spots. Tap it to join the <b>waitlist</b> — if someone cancels, the first person in line is moved in automatically.</li>
+    <li><span class="chip c-resv">Blue — RESERVED</span> is yours, locked in unless you tap it to cancel.</li>
+    <li><span class="chip c-wait">Gold — WAITLISTED</span> means you're in line; tap to leave the list.</li>
+  </ul>
+  <p>You can sign up for as many programs as you like inside the booking window, but the app <b>blocks overlapping times</b> — cancel one before reserving another at the same time.</p>
+  <p><b>Attendance score</b> (top right): after each session your teacher marks you present ✔ or absent ✘, and past sessions appear in your history. If your score falls below the school's threshold, booking becomes <b>waitlist-only</b> until it improves — so show up to what you reserve, or cancel ahead of time!</p>`;
+  const teacher=`<h4>📋 For teachers</h4>
+  <p>Your calendar shows only the sessions you teach, with enrollment counts — <b>FULL</b> is flagged, and today's sessions are highlighted.</p>
+  <p>Tap any session to open its <b>roster</b>: every enrolled student with their attendance percentage (low attenders are flagged ⚠), plus the waitlist. On the day of class, mark <b>every</b> student ✔ Present or ✘ Absent — the app won't save a partial list. Those marks feed each student's history and score, which is the school's official record.</p>`;
+  const admin=`<h4>🔑 For administrators</h4>
+  <ul>
+    <li><b>Approvals</b> — students and teachers create their own accounts, but nothing works until you approve them here.</li>
+    <li><b>Datasets</b> — three lists you own: Programs & Classes (create each one as a "class" or "afterschool program" with days, times, date range, room, capacity, and teacher), Students, and Teachers.</li>
+    <li><b>Branding</b> — rename the school and upload the photos shown on the public landing page (first photo = hero image).</li>
+    <li><b>Settings</b> — the booking window (default 14 days), the attendance threshold, what happens below it, and waitlist auto-promotion.</li>
+  </ul>`;
+  const start=`<h4>🚀 Getting started</h4>
+  <p>Everyone starts on the public page: tap <b>Sign Up</b>, pick your school and role, and create an account. A school administrator then approves it — until they do, you'll see a "waiting for approval" screen. Once approved, log in any time from any device; the app works on phones, tablets, and computers.</p>`;
+  openModal(`<div class="guide" style="max-width:560px">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+  <h3 class="sec" style="margin:0">How the app works</h3>
+  <button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeModal()">✕</button></div>
+  ${role==='student'?student+teacher.replace('<h4>📋 For teachers</h4>','<h4>📋 What teachers see</h4>'):''}
+  ${role==='teacher'?teacher+student.replace('<h4>🎒 For students</h4>','<h4>🎒 What students see</h4>'):''}
+  ${role==='admin'?admin+student+teacher:''}
+  ${!role?start+student+teacher+admin:''}
+  <p style="margin-top:14px"><button class="btn" onclick="closeModal()">Got it</button></p></div>`);
 }
 
 boot();
