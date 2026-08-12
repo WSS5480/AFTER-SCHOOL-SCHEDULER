@@ -76,9 +76,18 @@ try { db.exec("ALTER TABLE schools ADD COLUMN plan TEXT DEFAULT 'free'"); } catc
 try { db.exec("ALTER TABLE schools ADD COLUMN stripe_sub TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN plan_expires TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN slug TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+try { db.exec("ALTER TABLE schools ADD COLUMN created TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+db.exec(`CREATE TABLE IF NOT EXISTS support_messages(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  school_id INTEGER, user_id INTEGER, message TEXT NOT NULL,
+  status TEXT DEFAULT 'open', created TEXT DEFAULT (datetime('now'))
+);`);
+db.exec("UPDATE schools SET created=datetime('now') WHERE created=''");
 
+const RESERVED_SLUGS = ['owner', 'admin', 'api', 'mockup', 'demo-x', 'login', 'signup', 'static', 'assets'];
 function slugify(name) {
   let base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'school';
+  if (RESERVED_SLUGS.includes(base)) base += '-school';
   let slug = base, n = 2;
   while (db.prepare('SELECT 1 x FROM schools WHERE slug=?').get(slug)) slug = base + '-' + (n++);
   return slug;
@@ -94,6 +103,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS redeemed_codes(
 const FREE_LIMITS = { programs: 3, teachers: 3, students: 10 };
 const UPGRADE_CODE = process.env.UPGRADE_CODE || 'SCHOOL-PRO-2026';
 const CODE_SECRET = process.env.CODE_SECRET || 'scheduler-trial-secret';
+const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@demo.school';
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'owner123';
+const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK_URL || '';
+function notify(text) {
+  if (!ALERT_WEBHOOK) return;
+  fetch(ALERT_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, content: text }) }).catch(() => {});
+}
 const crypto = require('crypto');
 function trialSig(days, nonce) {
   return crypto.createHmac('sha256', CODE_SECRET).update(days + '|' + nonce.toUpperCase())
@@ -167,8 +184,12 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
   if (event.type === 'checkout.session.completed') {
     const s = event.data.object;
     const schoolId = Number(s.metadata && s.metadata.school_id);
-    if (schoolId) db.prepare("UPDATE schools SET plan='pro', stripe_sub=? WHERE id=?")
-      .run(s.subscription || '', schoolId);
+    if (schoolId) {
+      db.prepare("UPDATE schools SET plan='pro', stripe_sub=?, plan_expires='' WHERE id=?")
+        .run(s.subscription || '', schoolId);
+      const sch = db.prepare('SELECT name FROM schools WHERE id=?').get(schoolId);
+      notify(`💳 New subscription: ${sch ? sch.name : 'school #' + schoolId} is now on Unlimited!`);
+    }
   }
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object;
@@ -191,6 +212,14 @@ const q = {
   waitCount: db.prepare("SELECT COUNT(*) c FROM reservations WHERE program_id=? AND date=? AND status='waitlist'"),
   myRes: db.prepare("SELECT * FROM reservations WHERE student_id=? AND date=? AND status IN ('reserved','waitlist')"),
 };
+
+function ownerAuth(req, res, next) {
+  try {
+    const p = jwt.verify(req.cookies.tok, SECRET);
+    if (!p.owner) throw 0;
+    next();
+  } catch { res.status(401).json({ error: 'Owner login required.' }); }
+}
 
 function auth(roles) {
   return (req, res, next) => {
@@ -236,13 +265,14 @@ app.post('/api/register-school', (req, res) => {
   if (q.userByEmail.get(admin_email))
     return res.status(409).json({ error: 'That email already has an account. Log in instead.' });
   const slug = slugify(school_name);
-  const s = db.prepare('INSERT INTO schools(name,subtitle,slug) VALUES(?,?,?)')
+  const s = db.prepare("INSERT INTO schools(name,subtitle,slug,created) VALUES(?,?,?,datetime('now'))")
     .run(school_name.trim(), (subtitle || '').trim(), slug);
   db.prepare('INSERT INTO settings(school_id) VALUES(?)').run(s.lastInsertRowid);
   const a = db.prepare("INSERT INTO users(school_id,role,name,email,pass_hash,status) VALUES(?,?,?,?,?,'approved')")
     .run(s.lastInsertRowid, 'admin', admin_name.trim(), admin_email.trim(), bcrypt.hashSync(admin_password, 10));
   res.cookie('tok', jwt.sign({ uid: a.lastInsertRowid }, SECRET, { expiresIn: '30d' }),
     { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
+  notify(`🏫 New school registered: ${school_name.trim()} (/${slug}) — admin ${admin_name.trim()} <${admin_email.trim()}>`);
   res.json({ ok: true, slug });
 });
 
@@ -607,7 +637,8 @@ app.put('/api/admin/school', ...adm, (req, res) => {
 app.post('/api/admin/schools', ...adm, (req, res) => {   // new location under same district
   const { name, subtitle } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Name required.' });
-  const r = db.prepare('INSERT INTO schools(name,subtitle) VALUES(?,?)').run(name, subtitle || '');
+  const r = db.prepare("INSERT INTO schools(name,subtitle,slug,created) VALUES(?,?,?,datetime('now'))")
+    .run(name, subtitle || '', slugify(name));
   db.prepare('INSERT INTO settings(school_id) VALUES(?)').run(r.lastInsertRowid);
   res.json({ ok: true, id: r.lastInsertRowid });
 });
@@ -625,10 +656,74 @@ app.delete('/api/admin/photos/:id', ...adm, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------------- support (school admins → owner) ---------------- */
+app.post('/api/support', auth(['admin']), approvedOnly, (req, res) => {
+  const msg = ((req.body || {}).message || '').trim();
+  if (!msg) return res.status(400).json({ error: 'Write a message first.' });
+  if (msg.length > 4000) return res.status(400).json({ error: 'Message too long.' });
+  db.prepare('INSERT INTO support_messages(school_id,user_id,message) VALUES(?,?,?)')
+    .run(req.user.school_id, req.user.id, msg);
+  const school = q.school.get(req.user.school_id);
+  notify(`🛟 Support message from ${school.name} (${req.user.name} <${req.user.email}>): ${msg.slice(0, 300)}`);
+  res.json({ ok: true, message: 'Sent! Support will reply to your account email.' });
+});
+
+/* ---------------- owner (platform operator) ---------------- */
+app.post('/api/owner/login', (req, res) => {
+  const { email, password } = req.body || {};
+  if ((email || '').toLowerCase() !== OWNER_EMAIL.toLowerCase() || password !== OWNER_PASSWORD)
+    return res.status(401).json({ error: 'Wrong owner credentials.' });
+  res.cookie('tok', jwt.sign({ owner: true }, SECRET, { expiresIn: '7d' }),
+    { httpOnly: true, sameSite: 'lax', maxAge: 7 * 864e5 });
+  res.json({ ok: true });
+});
+
+app.get('/api/owner/overview', ownerAuth, (_req, res) => {
+  const schools = db.prepare(`
+    SELECT s.id, s.name, s.slug, s.plan, s.plan_expires, s.created,
+      (SELECT COUNT(*) FROM programs p WHERE p.school_id=s.id) programs,
+      (SELECT COUNT(*) FROM users u WHERE u.school_id=s.id AND u.role='teacher' AND u.status='approved') teachers,
+      (SELECT COUNT(*) FROM users u WHERE u.school_id=s.id AND u.role='student' AND u.status='approved') students,
+      (SELECT email FROM users u WHERE u.school_id=s.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
+      (SELECT name FROM users u WHERE u.school_id=s.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_name
+    FROM schools s ORDER BY s.created DESC`).all();
+  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const in7 = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const alerts = [];
+  schools.filter(s => s.created.slice(0, 10) >= weekAgo)
+    .forEach(s => alerts.push({ type: 'new', text: `🏫 New school: ${s.name} (/${s.slug}) — ${s.admin_email || 'no admin'}`, when: s.created }));
+  schools.filter(s => s.plan === 'pro' && s.plan_expires && s.plan_expires <= in7)
+    .forEach(s => alerts.push({ type: 'trial', text: `⏳ Trial ending ${s.plan_expires}: ${s.name} — good time to follow up`, when: s.plan_expires }));
+  const support = db.prepare(`
+    SELECT m.*, s.name school, s.slug, u.name user_name, u.email user_email
+    FROM support_messages m LEFT JOIN schools s ON s.id=m.school_id LEFT JOIN users u ON u.id=m.user_id
+    ORDER BY m.status='open' DESC, m.created DESC LIMIT 100`).all();
+  support.filter(m => m.status === 'open')
+    .forEach(m => alerts.push({ type: 'support', text: `🛟 Open support from ${m.school}: "${m.message.slice(0, 80)}"`, when: m.created }));
+  alerts.sort((a, b) => (b.when || '').localeCompare(a.when || ''));
+  res.json({
+    schools, support, alerts: alerts.slice(0, 20),
+    kpis: {
+      total: schools.length,
+      newWeek: schools.filter(s => s.created.slice(0, 10) >= weekAgo).length,
+      paid: schools.filter(s => s.plan === 'pro' && !s.plan_expires).length,
+      trials: schools.filter(s => s.plan === 'pro' && s.plan_expires).length,
+      students: schools.reduce((a, s) => a + s.students, 0),
+      openSupport: support.filter(m => m.status === 'open').length,
+    },
+  });
+});
+
+app.post('/api/owner/support/:id/close', ownerAuth, (req, res) => {
+  db.prepare("UPDATE support_messages SET status='closed' WHERE id=?").run(req.params.id);
+  res.json({ ok: true });
+});
+
 /* ---------------- static ---------------- */
 const PUBLIC_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 PUBLIC_FILES.forEach(f => app.get('/' + f, (_req, res) => res.sendFile(path.join(__dirname, f))));
 app.get('/mockup', (_req, res) => res.sendFile(path.join(__dirname, 'mockup.html')));
+app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 /* per-school pages: /<slug> serves the app, which reads the slug client-side */
 app.get('/:slug', (req, res) => {
