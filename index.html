@@ -416,7 +416,7 @@ async function renderAdmin(){
       <div class="kpi"><div class="n">${o.attendance===null?'—':o.attendance+'%'}</div><div class="l">Attendance rate</div></div>
       <div class="kpi"><div class="n" style="color:var(--wait)">${o.pending}</div><div class="l">Pending approvals</div></div></div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-      <b style="font-size:14px">Plan: ${u.plan==='free'?'Free':'✨ Unlimited'}</b>
+      <b style="font-size:14px">Plan: ${u.plan==='free'?'Free':'✨ Unlimited'+(u.plan_expires?' · trial until '+u.plan_expires:'')}</b>
       ${u.plan==='free'?`<button class="btn sm" onclick="showUpgrade()">Upgrade to Unlimited</button>`:''}</div>
       ${meter('Classes & programs',u.programs,lim?lim.programs:0)}
       ${meter('Teachers (approved)',u.teachers,lim?lim.teachers:0)}

@@ -74,14 +74,29 @@ try { db.exec("ALTER TABLE users ADD COLUMN student_id TEXT DEFAULT ''"); } catc
 try { db.exec("ALTER TABLE users ADD COLUMN id_photo TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN plan TEXT DEFAULT 'free'"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN stripe_sub TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+try { db.exec("ALTER TABLE schools ADD COLUMN plan_expires TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+db.exec(`CREATE TABLE IF NOT EXISTS redeemed_codes(
+  code TEXT PRIMARY KEY, school_id INTEGER, redeemed TEXT DEFAULT (datetime('now'))
+);`);
 
 /* ---------------- plans ---------------- */
 const FREE_LIMITS = { programs: 3, teachers: 3, students: 10 };
 const UPGRADE_CODE = process.env.UPGRADE_CODE || 'SCHOOL-PRO-2026';
+const CODE_SECRET = process.env.CODE_SECRET || 'scheduler-trial-secret';
+const crypto = require('crypto');
+function trialSig(days, nonce) {
+  return crypto.createHmac('sha256', CODE_SECRET).update(days + '|' + nonce.toUpperCase())
+    .digest('hex').slice(0, 6).toUpperCase();
+}
 function planUsage(schoolId) {
-  const plan = (db.prepare('SELECT plan FROM schools WHERE id=?').get(schoolId) || {}).plan || 'free';
+  const row = db.prepare('SELECT plan, plan_expires FROM schools WHERE id=?').get(schoolId) || {};
+  let plan = row.plan || 'free';
+  if (plan === 'pro' && row.plan_expires && row.plan_expires < todayISO()) {
+    db.prepare("UPDATE schools SET plan='free', plan_expires='' WHERE id=?").run(schoolId);
+    plan = 'free';
+  }
   return {
-    plan,
+    plan, plan_expires: plan === 'pro' ? (row.plan_expires || '') : '',
     limits: plan === 'free' ? FREE_LIMITS : null,
     programs: db.prepare('SELECT COUNT(*) c FROM programs WHERE school_id=?').get(schoolId).c,
     teachers: db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND role='teacher' AND status='approved'").get(schoolId).c,
@@ -419,11 +434,27 @@ app.post('/api/admin/checkout', ...adm, async (req, res) => {
 });
 
 app.post('/api/admin/upgrade', ...adm, (req, res) => {
-  const { code } = req.body || {};
-  if ((code || '').trim() !== UPGRADE_CODE)
-    return res.status(400).json({ error: 'That upgrade code is not valid. Contact support to purchase a subscription.' });
-  db.prepare("UPDATE schools SET plan='pro' WHERE id=?").run(req.user.school_id);
-  res.json({ ok: true, message: 'Upgraded! Unlimited classes, teachers, and students are now enabled.' });
+  const code = ((req.body || {}).code || '').trim().toUpperCase();
+  // permanent code
+  if (code === UPGRADE_CODE.toUpperCase()) {
+    db.prepare("UPDATE schools SET plan='pro', plan_expires='' WHERE id=?").run(req.user.school_id);
+    return res.json({ ok: true, message: 'Upgraded! Unlimited classes, teachers, and students are now enabled.' });
+  }
+  // signed trial code: PRO-<days>D-<nonce>-<sig>
+  const m = code.match(/^PRO-(\d{1,4})D-([A-Z0-9]{4,12})-([A-F0-9]{6})$/);
+  if (m) {
+    const [, days, nonce, sig] = m;
+    if (trialSig(days, nonce) !== sig)
+      return res.status(400).json({ error: 'That upgrade code is not valid. Contact support to purchase a subscription.' });
+    if (db.prepare('SELECT 1 x FROM redeemed_codes WHERE code=?').get(code))
+      return res.status(400).json({ error: 'That code has already been used.' });
+    const exp = new Date(); exp.setDate(exp.getDate() + Number(days));
+    const expISO = exp.toISOString().slice(0, 10);
+    db.prepare('INSERT INTO redeemed_codes(code,school_id) VALUES(?,?)').run(code, req.user.school_id);
+    db.prepare("UPDATE schools SET plan='pro', plan_expires=? WHERE id=?").run(expISO, req.user.school_id);
+    return res.json({ ok: true, message: `Unlimited unlocked for ${days} days — active until ${expISO}. After that, the school returns to the free plan automatically.` });
+  }
+  res.status(400).json({ error: 'That upgrade code is not valid. Contact support to purchase a subscription.' });
 });
 
 app.get('/api/admin/overview', ...adm, (req, res) => {
