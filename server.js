@@ -22,7 +22,7 @@ db.pragma('journal_mode = WAL');
 db.exec(`
 CREATE TABLE IF NOT EXISTS schools(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL, subtitle TEXT DEFAULT ''
+  name TEXT NOT NULL, subtitle TEXT DEFAULT '', plan TEXT DEFAULT 'free'
 );
 CREATE TABLE IF NOT EXISTS settings(
   school_id INTEGER PRIMARY KEY,
@@ -72,6 +72,32 @@ CREATE TABLE IF NOT EXISTS photos(
 `);
 try { db.exec("ALTER TABLE users ADD COLUMN student_id TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE users ADD COLUMN id_photo TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+try { db.exec("ALTER TABLE schools ADD COLUMN plan TEXT DEFAULT 'free'"); } catch (_) { /* column exists */ }
+
+/* ---------------- plans ---------------- */
+const FREE_LIMITS = { programs: 3, teachers: 3, students: 10 };
+const UPGRADE_CODE = process.env.UPGRADE_CODE || 'SCHOOL-PRO-2026';
+function planUsage(schoolId) {
+  const plan = (db.prepare('SELECT plan FROM schools WHERE id=?').get(schoolId) || {}).plan || 'free';
+  return {
+    plan,
+    limits: plan === 'free' ? FREE_LIMITS : null,
+    programs: db.prepare('SELECT COUNT(*) c FROM programs WHERE school_id=?').get(schoolId).c,
+    teachers: db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND role='teacher' AND status='approved'").get(schoolId).c,
+    students: db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND role='student' AND status='approved'").get(schoolId).c,
+  };
+}
+function planBlocked(schoolId, kind) {
+  const u = planUsage(schoolId);
+  if (u.plan !== 'free') return null;
+  if (kind === 'programs' && u.programs >= FREE_LIMITS.programs)
+    return `Free plan limit reached (${FREE_LIMITS.programs} classes/programs). Upgrade to add more.`;
+  if (kind === 'teachers' && u.teachers >= FREE_LIMITS.teachers)
+    return `Free plan limit reached (${FREE_LIMITS.teachers} teachers). Upgrade to approve more.`;
+  if (kind === 'students' && u.students >= FREE_LIMITS.students)
+    return `Free plan limit reached (${FREE_LIMITS.students} students). Upgrade to approve more.`;
+  return null;
+}
 
 /* ---------------- seed (only when empty) ---------------- */
 if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
@@ -92,8 +118,7 @@ if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
   const P = db.prepare("INSERT INTO programs(school_id,name,type,teacher_id,room,capacity,days,time_start,time_end,date_start,date_end,emoji) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
   P.run(sid, 'Chess Club', 'afterschool', teach.lastInsertRowid, 'Rm 104', 16, '1,3', '15:30', '16:30', iso(start), iso(end), '♟️');
   P.run(sid, 'Track & Field', 'afterschool', teach.lastInsertRowid, 'Field', 24, '2,4', '15:30', '17:00', iso(start), iso(end), '🏃');
-  P.run(sid, 'Art Studio', 'class', teach.lastInsertRowid, 'Rm 210', 18, '1,5', '13:00', '14:00', iso(start), iso(end), '🎨');
-  P.run(sid, 'Robotics Lab', 'afterschool', teach.lastInsertRowid, 'STEM Lab', 3, '3', '15:30', '17:00', iso(start), iso(end), '🤖');
+  P.run(sid, 'Robotics Lab', 'class', teach.lastInsertRowid, 'STEM Lab', 3, '3', '15:30', '17:00', iso(start), iso(end), '🤖');
 }
 
 /* ---------------- helpers ---------------- */
@@ -346,6 +371,14 @@ app.post('/api/teacher/attendance', auth(['teacher']), approvedOnly, (req, res) 
 /* ---------------- admin ---------------- */
 const adm = [auth(['admin']), approvedOnly];
 
+app.post('/api/admin/upgrade', ...adm, (req, res) => {
+  const { code } = req.body || {};
+  if ((code || '').trim() !== UPGRADE_CODE)
+    return res.status(400).json({ error: 'That upgrade code is not valid. Contact support to purchase a subscription.' });
+  db.prepare("UPDATE schools SET plan='pro' WHERE id=?").run(req.user.school_id);
+  res.json({ ok: true, message: 'Upgraded! Unlimited classes, teachers, and students are now enabled.' });
+});
+
 app.get('/api/admin/overview', ...adm, (req, res) => {
   const sid = req.user.school_id;
   const pending = db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND status='pending'").get(sid).c;
@@ -355,7 +388,7 @@ app.get('/api/admin/overview', ...adm, (req, res) => {
   const att = db.prepare(
     `SELECT AVG(r.attended)*100 a FROM reservations r JOIN programs p ON p.id=r.program_id
      WHERE p.school_id=? AND r.attended IS NOT NULL`).get(sid).a;
-  res.json({ pending, reservations, attendance: att === null ? null : Math.round(att) });
+  res.json({ pending, reservations, attendance: att === null ? null : Math.round(att), usage: planUsage(sid) });
 });
 
 app.get('/api/admin/pending', ...adm, (req, res) => {
@@ -367,6 +400,10 @@ app.post('/api/admin/approve', ...adm, (req, res) => {
   const { user_id, approve } = req.body || {};
   const u = q.user.get(user_id);
   if (!u || u.school_id !== req.user.school_id) return res.status(404).json({ error: 'User not found.' });
+  if (approve) {
+    const block = planBlocked(req.user.school_id, u.role === 'teacher' ? 'teachers' : 'students');
+    if (block) return res.status(403).json({ error: block, upgrade: true });
+  }
   db.prepare('UPDATE users SET status=? WHERE id=?').run(approve ? 'approved' : 'rejected', user_id);
   res.json({ ok: true });
 });
@@ -381,6 +418,10 @@ app.put('/api/admin/users/:id', ...adm, (req, res) => {
   const u = q.user.get(req.params.id);
   if (!u || u.school_id !== req.user.school_id) return res.status(404).json({ error: 'User not found.' });
   const { name, grade, status } = req.body || {};
+  if (status === 'approved' && u.status !== 'approved') {
+    const block = planBlocked(req.user.school_id, u.role === 'teacher' ? 'teachers' : 'students');
+    if (block) return res.status(403).json({ error: block, upgrade: true });
+  }
   db.prepare('UPDATE users SET name=COALESCE(?,name), grade=COALESCE(?,grade), status=COALESCE(?,status) WHERE id=?')
     .run(name, grade, status, u.id);
   res.json({ ok: true });
@@ -400,6 +441,8 @@ app.get('/api/admin/programs', ...adm, (req, res) => {
      WHERE p.school_id=? ORDER BY p.name`).all(req.user.school_id));
 });
 app.post('/api/admin/programs', ...adm, (req, res) => {
+  const block = planBlocked(req.user.school_id, 'programs');
+  if (block) return res.status(403).json({ error: block, upgrade: true });
   const b = req.body || {};
   for (const k of ['name', 'type', 'days', 'time_start', 'time_end', 'date_start', 'date_end'])
     if (!b[k]) return res.status(400).json({ error: `Missing ${k}.` });

@@ -397,10 +397,25 @@ async function renderAdmin(){
   const pane=$('apane');
   if(atab==='dash'){
     const o=await api('/api/admin/overview');
+    const u=o.usage, lim=u.limits;
+    const meter=(label,used,max)=>{
+      const pct=max?Math.min(100,Math.round(100*used/max)):0;
+      const full=max&&used>=max;
+      return `<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:700">
+        <span>${label}</span><span style="color:${full?'var(--miss)':'var(--ink2)'}">${used}${max?' / '+max:''}${full?' · FULL':''}</span></div>
+        ${max?`<div style="height:7px;background:#eceef3;border-radius:4px;margin-top:4px"><div style="height:7px;border-radius:4px;width:${pct}%;background:${full?'var(--miss)':'var(--brand)'}"></div></div>`:''}</div>`;
+    };
     pane.innerHTML=`<div class="kpis">
       <div class="kpi"><div class="n">${o.reservations}</div><div class="l">Upcoming reservations</div></div>
       <div class="kpi"><div class="n">${o.attendance===null?'—':o.attendance+'%'}</div><div class="l">Attendance rate</div></div>
       <div class="kpi"><div class="n" style="color:var(--wait)">${o.pending}</div><div class="l">Pending approvals</div></div></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <b style="font-size:14px">Plan: ${u.plan==='free'?'Free':'✨ Unlimited'}</b>
+      ${u.plan==='free'?`<button class="btn sm" onclick="showUpgrade()">Upgrade to Unlimited</button>`:''}</div>
+      ${meter('Classes & programs',u.programs,lim?lim.programs:0)}
+      ${meter('Teachers (approved)',u.teachers,lim?lim.teachers:0)}
+      ${meter('Students (approved)',u.students,lim?lim.students:0)}
+      ${u.plan==='free'?`<p class="note">Free plan includes up to 3 classes/programs, 3 teachers, and 10 students. Subscribe for unlimited.</p>`:'<p class="note">Unlimited classes, teachers, and students.</p>'}</div>
       <div class="card"><b style="font-size:14px">Quick links</b><p class="note" style="margin-top:6px">
       Approve new accounts in <b>Approvals</b> · add classes, students & teachers in <b>Datasets</b> ·
       set the booking window and attendance threshold in <b>Settings</b> · personalize the public page in <b>Branding</b>.</p></div>`;
@@ -444,6 +459,19 @@ function enlargeId(id,name){
   <div style="display:flex;gap:8px;margin-top:12px">
   <button class="btn" onclick="closeModal();decide(${id},true)">Approve</button>
   <button class="btn danger" onclick="closeModal();decide(${id},false)">Reject</button></div>`);
+}
+function showUpgrade(){
+  openModal(`<h3 class="sec">Upgrade to Unlimited</h3>
+  <p class="note" style="margin-bottom:12px">The free plan includes <b>3 classes/programs, 3 teachers, and 10 students</b>.
+  A subscription unlocks unlimited everything for your school. To purchase, contact your provider — you'll receive an
+  upgrade code to enter below.</p>
+  <div class="field"><label>Upgrade code</label><input id="up_code" placeholder="e.g. SCHOOL-PRO-XXXX"></div>
+  <button class="btn" onclick="doUpgrade()">Activate</button>
+  <button class="btn grey" style="margin-left:8px" onclick="closeModal()">Not now</button>`);
+}
+async function doUpgrade(){
+  try{const d=await api('/api/admin/upgrade',{method:'POST',body:{code:$('up_code').value}});
+    closeModal();toast(d.message);renderAdmin();}catch(e){toast(e.message)}
 }
 async function decide(id,approve){
   try{await api('/api/admin/approve',{method:'POST',body:{user_id:id,approve}});
