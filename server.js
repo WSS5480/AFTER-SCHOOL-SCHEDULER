@@ -108,8 +108,8 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'owner123';
 const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK_URL || '';
 const RESEND_KEY = process.env.RESEND_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || '';
-const GMAIL_USER = process.env.GMAIL_USER || '';
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
+const GMAIL_USER = process.env.GMAIL_USER || process.env.EMAIL_USER || '';
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASSWORD || '';
 const emailEnabled = () => !!(GMAIL_USER && GMAIL_APP_PASSWORD) || !!(RESEND_KEY && EMAIL_FROM);
 let mailer = null;
 if (GMAIL_USER && GMAIL_APP_PASSWORD) {
@@ -713,14 +713,6 @@ app.put('/api/admin/school', ...adm, (req, res) => {
     .run(name, subtitle, req.user.school_id);
   res.json({ ok: true });
 });
-app.post('/api/admin/schools', ...adm, (req, res) => {   // new location under same district
-  const { name, subtitle } = req.body || {};
-  if (!name) return res.status(400).json({ error: 'Name required.' });
-  const r = db.prepare("INSERT INTO schools(name,subtitle,slug,created) VALUES(?,?,?,datetime('now'))")
-    .run(name, subtitle || '', slugify(name));
-  db.prepare('INSERT INTO settings(school_id) VALUES(?)').run(r.lastInsertRowid);
-  res.json({ ok: true, id: r.lastInsertRowid });
-});
 
 app.post('/api/admin/photos', ...adm, (req, res) => {
   const { caption, data } = req.body || {};
@@ -807,6 +799,20 @@ app.post('/api/owner/gencodes', ownerAuth, (req, res) => {
   res.json({ days, codes });
 });
 
+app.get('/api/owner/emailstatus', ownerAuth, (_req, res) => {
+  res.json({ enabled: emailEnabled(), via: mailer ? 'gmail' : (RESEND_KEY ? 'resend' : null), from: GMAIL_USER || EMAIL_FROM || null });
+});
+app.post('/api/owner/testemail', ownerAuth, async (req, res) => {
+  const to = ((req.body || {}).to || '').trim();
+  if (!to) return res.status(400).json({ error: 'Enter an address to send the test to.' });
+  if (!emailEnabled()) return res.status(400).json({ error: 'Email is not configured — set GMAIL_USER (or EMAIL_USER) and GMAIL_APP_PASSWORD (or EMAIL_PASSWORD) env vars.' });
+  try {
+    await sendEmail(to, 'School Scheduler — test email',
+      '<p>✅ Email service is working. Password-reset links will be delivered from this address.</p>');
+    res.json({ ok: true, message: 'Test email sent to ' + to + ' — check the inbox (and spam).' });
+  } catch (e) { res.status(500).json({ error: 'Send failed: ' + e.message }); }
+});
+
 app.post('/api/owner/resetpw', ownerAuth, (req, res) => {
   const admin = db.prepare("SELECT * FROM users WHERE school_id=? AND role='admin' ORDER BY id LIMIT 1")
     .get((req.body || {}).school_id);
@@ -824,7 +830,6 @@ app.post('/api/owner/support/:id/close', ownerAuth, (req, res) => {
 /* ---------------- static ---------------- */
 const PUBLIC_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 PUBLIC_FILES.forEach(f => app.get('/' + f, (_req, res) => res.sendFile(path.join(__dirname, f))));
-app.get('/mockup', (_req, res) => res.sendFile(path.join(__dirname, 'mockup.html')));
 app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 /* per-school pages: /<slug> serves the app, which reads the slug client-side */

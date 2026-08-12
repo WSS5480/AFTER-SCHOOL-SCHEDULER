@@ -1,46 +1,37 @@
-# School Classes & Afterschool Programs Scheduler
+# School Scheduler — Classes & Afterschool Programs
 
-A working multi-school scheduler: students reserve spots in classes and afterschool programs,
-teachers take attendance, admins approve accounts and run everything.
+Multi-tenant SaaS: schools self-register, students reserve spots, teachers take attendance,
+admins run their school, and the platform owner manages everything from /owner.
 
-**Live app:** deployed via Render (Docker). The old clickable mockup is kept at `/mockup`.
+## URLs
 
-## Demo accounts (seeded on first run)
+- `/` — storefront with **Register your school**
+- `/<school-slug>` — each school's private page (branding, programs, signup, login)
+- `/owner` — platform owner: schools, alerts, trial-code generator, support inbox, email test
 
-| Role    | Email              | Password |
-|---------|--------------------|----------|
-| Admin   | admin@demo.school  | admin123 |
-| Teacher | rivera@demo.school | teach123 |
-| Student | maya@demo.school   | learn123 |
+## Environment variables (Render → service → Environment)
 
-Change or remove these once real accounts exist (Admin → Datasets).
+| Var | Purpose |
+|---|---|
+| `DB_PATH` | e.g. `/data/afterschoolscheduler/app.db` — on the persistent disk |
+| `JWT_SECRET` | long random phrase — secures logins |
+| `CODE_SECRET` | long random phrase — signs trial codes |
+| `UPGRADE_CODE` | permanent unlock code (manual sales) |
+| `OWNER_EMAIL` / `OWNER_PASSWORD` | /owner dashboard login |
+| `EMAIL_USER` / `EMAIL_PASSWORD` | Gmail address + app password for reset emails (aliases: GMAIL_USER / GMAIL_APP_PASSWORD) |
+| `ALERT_WEBHOOK_URL` | optional Slack/Discord webhook for instant alerts |
+| `STRIPE_SECRET_KEY` / `STRIPE_PRICE_ID` / `STRIPE_WEBHOOK_SECRET` | card subscriptions |
 
-## How it works
+## Plans
 
-- Students & teachers sign up from the landing page → land in the admin **Approvals** queue.
-- Approved students see a rolling calendar (window length set by admin, default 14 days):
-  green = open (tap to reserve), grey = full (tap to waitlist, auto-promoted when a spot opens),
-  blue = reserved (locked until cancelled). Overlapping reservations are blocked.
-- Past sessions show ✔ attended / ✘ no-show; the attendance % score is top-right.
-  Below the admin-set threshold, booking becomes waitlist-only.
-- Teachers open any session for its roster and must mark every student present/absent.
-- Admins: approvals, programs/students/teachers datasets, school branding + photo uploads,
-  and settings (window, threshold, limitation, auto-promotion).
+Free: 3 classes/programs, 3 teachers, 10 students per school. Trial codes (owner dashboard)
+unlock Unlimited for N days, then auto-revert. Stripe subscription = permanent Unlimited.
 
 ## Files
 
 ```
 server.js     # API + static server (Express + SQLite)
-index.html    # the app UI (all four views)
-mockup.html   # original approved mockup, served at /mockup
-package.json  # dependencies
+index.html    # the whole front end (storefront, school pages, all dashboards, PWA)
+manifest.webmanifest, sw.js, icon-*.png, apple-touch-icon.png   # phone-install support
 Dockerfile    # Render Docker deploy
 ```
-
-## Important: data persistence
-
-SQLite lives on the service's disk. On Render's **free tier the disk is ephemeral** —
-data resets on every deploy/restart. Fine for trials; before real use either
-add a Render persistent disk (set `DB_PATH` to the mount) or ask Claude to wire up Postgres.
-
-Also set a strong `JWT_SECRET` environment variable in Render for production.

@@ -276,8 +276,7 @@ function showLogin(){
   <div class="field"><label>Email</label><input id="li_email" type="email" autocomplete="username"></div>
   <div class="field"><label>Password</label><input id="li_pass" type="password" autocomplete="current-password"></div>
   <button class="btn" onclick="doLogin()">Log in</button>
-  <p class="note" style="margin-top:10px"><a href="#" onclick="showForgot();return false" style="color:var(--brand);font-weight:700">Forgot password?</a></p>
-  <p class="note" style="margin-top:10px">Demo accounts: admin@demo.school / admin123 · rivera@demo.school / teach123 · maya@demo.school / learn123</p>`);
+  <p class="note" style="margin-top:10px"><a href="#" onclick="showForgot();return false" style="color:var(--brand);font-weight:700">Forgot password?</a></p>`);
 }
 async function doLogin(){
   try{await api('/api/login',{method:'POST',body:{email:$('li_email').value,password:$('li_pass').value}});
@@ -731,6 +730,11 @@ function renderOwner(ov){
         <td style="font-size:12px">${esc(s.admin_name||'—')}<br><span class="note">${esc(s.admin_email||'')}</span></td>
         <td class="note">${(s.created||'').slice(0,10)}<br><button class="btn sm grey" onclick="ownerResetPw(${s.id},'${esc(s.name)}')">Reset admin PW</button></td></tr>`).join('')}
     </table></div></div>
+  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <b style="font-size:14px">📧 Email service</b><span id="em_status" class="pill full">checking…</span></div>
+    <p class="note" style="margin:6px 0 8px">Sends password-reset links. Configure with GMAIL_USER / GMAIL_APP_PASSWORD (or EMAIL_USER / EMAIL_PASSWORD) env vars in Render.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="em_to" placeholder="send test to…" style="flex:1;min-width:180px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px">
+    <button class="btn sm" onclick="testEmail()">Send test</button></div></div>
   <div class="card"><b style="font-size:14px">🔑 Trial code generator</b>
     <p class="note" style="margin:4px 0 10px">Mint single-use codes that unlock the full Unlimited plan for a set time, then auto-revert the school to Free. Hand one to a school to start their trial.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
@@ -751,6 +755,16 @@ function renderOwner(ov){
       </div>`).join(''):'<p class="note" style="margin-top:6px">No support messages yet. School admins send them from their console.</p>'}
   </div>
   <p class="note">Reply to support by emailing the address shown — replies aren't sent from inside the app (yet).</p>`;
+  loadEmailStatus();
+}
+async function loadEmailStatus(){
+  const el=$('em_status'); if(!el) return;
+  const s=await api('/api/owner/emailstatus').catch(()=>({enabled:false}));
+  el.className='pill '+(s.enabled?'open':'wait');
+  el.textContent=s.enabled?('✔ on via '+s.via+' ('+s.from+')'):'⚠ not configured';
+}
+async function testEmail(){
+  try{const d=await api('/api/owner/testemail',{method:'POST',body:{to:$('em_to').value}});toast(d.message);}catch(e){toast(e.message)}
 }
 async function genCodes(){
   try{
