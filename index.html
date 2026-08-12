@@ -174,6 +174,11 @@ const t12=t=>{let[h,m]=t.split(':').map(Number);const ap=h>=12?'PM':'AM';h=h%12|
 
 /* ---------- boot ---------- */
 async function boot(){
+  if(SLUG==='owner'){
+    const ov=await api('/api/owner/overview').catch(()=>null);
+    if(ov) return renderOwner(ov);
+    return renderOwnerLogin();
+  }
   try{ ME=await api('/api/me'); }catch{ ME=null; }
   if(!ME){
     if(SLUG && SLUG!=='mockup'){
@@ -444,7 +449,8 @@ async function saveAttendance(pid,date,total){
 let atab='dash';
 async function renderAdmin(){
   app.innerHTML=`
-  <div class="apphead"><div class="who">Admin Console<small>${esc(ME.school.name)}</small></div></div>
+  <div class="apphead"><div class="who">Admin Console<small>${esc(ME.school.name)}</small></div>
+    <button class="btn sm ghost" onclick="showSupport()">🛟 Contact support</button></div>
   <div class="atabs">
     ${[['dash','📊 Dashboard'],['appr','✅ Approvals'],['data','🗂 Datasets'],['brand','🎨 Branding'],['set','⚙️ Settings']]
       .map(([k,l])=>`<button class="${atab===k?'on':''}" onclick="atab='${k}';renderAdmin()">${l}</button>`).join('')}
@@ -537,6 +543,16 @@ async function goCheckout(){
 async function doUpgrade(){
   try{const d=await api('/api/admin/upgrade',{method:'POST',body:{code:$('up_code').value}});
     closeModal();toast(d.message);renderAdmin();}catch(e){toast(e.message)}
+}
+function showSupport(){
+  openModal(`<h3 class="sec">🛟 Contact support</h3>
+  <p class="note" style="margin-bottom:10px">Questions, problems, or upgrade requests — we'll reply to your account email (${esc(ME.email)}).</p>
+  <textarea id="sup_msg" rows="4" placeholder="How can we help?"></textarea>
+  <button class="btn" style="margin-top:10px" onclick="sendSupport()">Send</button>`);
+}
+async function sendSupport(){
+  try{const d=await api('/api/support',{method:'POST',body:{message:$('sup_msg').value}});
+    closeModal();toast(d.message);}catch(e){toast(e.message)}
 }
 async function decide(id,approve){
   try{await api('/api/admin/approve',{method:'POST',body:{user_id:id,approve}});
@@ -638,6 +654,63 @@ function uploadPhoto(input){
 }
 async function delPhoto(id){
   try{await api('/api/admin/photos/'+id,{method:'DELETE'});toast('Photo removed.');renderAdmin();}catch(e){toast(e.message)}
+}
+
+/* ---------- owner dashboard (/owner) ---------- */
+function renderOwnerLogin(){
+  $('hdr').style.display='none';
+  app.innerHTML=`<div class="card center" style="margin-top:50px">
+  <h3 class="sec">🔐 Owner login</h3>
+  <p class="note" style="margin-bottom:12px">Platform operator access only.</p>
+  <div class="field"><label>Email</label><input id="ow_email" type="email"></div>
+  <div class="field"><label>Password</label><input id="ow_pass" type="password"></div>
+  <button class="btn" onclick="doOwnerLogin()">Log in</button></div>`;
+}
+async function doOwnerLogin(){
+  try{await api('/api/owner/login',{method:'POST',body:{email:$('ow_email').value,password:$('ow_pass').value}});
+    boot();}catch(e){toast(e.message)}
+}
+function renderOwner(ov){
+  $('hdr').style.display='flex';
+  $('hdrSub').textContent='Owner dashboard';
+  const k=ov.kpis;
+  const planChip=s=>s.plan==='pro'?(s.plan_expires?`<span class="pill wait">⏳ trial → ${s.plan_expires}</span>`:'<span class="pill open">✨ paid</span>'):'<span class="pill full">free</span>';
+  const isNew=s=>s.created&&s.created.slice(0,10)>=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  app.innerHTML=`
+  <div class="apphead"><div class="who">Mission Control<small>All schools · alerts · support</small></div>
+    <button class="btn sm ghost" onclick="boot()">↻ Refresh</button></div>
+  <div class="kpis">
+    <div class="kpi"><div class="n">${k.total}</div><div class="l">Schools</div></div>
+    <div class="kpi"><div class="n" style="color:var(--open)">${k.newWeek}</div><div class="l">New this week</div></div>
+    <div class="kpi"><div class="n">${k.paid}</div><div class="l">Paid</div></div>
+    <div class="kpi"><div class="n" style="color:var(--wait)">${k.trials}</div><div class="l">Active trials</div></div>
+    <div class="kpi"><div class="n">${k.students}</div><div class="l">Students total</div></div>
+    <div class="kpi"><div class="n" style="color:${k.openSupport?'var(--miss)':'var(--ink)'}">${k.openSupport}</div><div class="l">Open support</div></div>
+  </div>
+  <div class="card"><b style="font-size:14px">🔔 Alerts</b>
+    ${ov.alerts.length?ov.alerts.map(a=>`<div class="hrow" style="margin-top:8px"><span style="font-size:13px">${esc(a.text)}</span><span class="note">${(a.when||'').slice(0,10)}</span></div>`).join(''):'<p class="note" style="margin-top:6px">Quiet for now — new schools, expiring trials, and open support show up here.</p>'}
+  </div>
+  <div class="card"><b style="font-size:14px">🏫 Schools</b>
+    <div class="tbl-wrap" style="margin-top:8px"><table>
+      <tr><th>School</th><th>Plan</th><th>Programs</th><th>Teachers</th><th>Students</th><th>Admin</th><th>Registered</th></tr>
+      ${ov.schools.map(s=>`<tr>
+        <td><b>${esc(s.name)}</b>${isNew(s)?' <span class="pill open">NEW</span>':''}<br><a href="/${s.slug}" target="_blank" style="font-size:11.5px;color:var(--brand)">/${s.slug}</a></td>
+        <td>${planChip(s)}</td><td>${s.programs}</td><td>${s.teachers}</td><td>${s.students}</td>
+        <td style="font-size:12px">${esc(s.admin_name||'—')}<br><span class="note">${esc(s.admin_email||'')}</span></td>
+        <td class="note">${(s.created||'').slice(0,10)}</td></tr>`).join('')}
+    </table></div></div>
+  <div class="card"><b style="font-size:14px">🛟 Support inbox</b>
+    ${ov.support.length?ov.support.map(m=>`
+      <div class="appr" style="margin-top:8px;${m.status==='open'?'':'opacity:.55'}">
+        <div style="flex:1"><b>${esc(m.school||'?')}</b> <span class="note">· ${esc(m.user_name||'')} &lt;${esc(m.user_email||'')}&gt; · ${(m.created||'').slice(0,16)}</span>
+        <div style="font-size:13.5px;margin-top:4px">${esc(m.message)}</div></div>
+        ${m.status==='open'?`<button class="btn sm" onclick="closeTicket(${m.id})">Mark resolved</button>`:'<span class="pill open">resolved</span>'}
+      </div>`).join(''):'<p class="note" style="margin-top:6px">No support messages yet. School admins send them from their console.</p>'}
+  </div>
+  <p class="note">Reply to support by emailing the address shown — replies aren't sent from inside the app (yet).</p>`;
+}
+async function closeTicket(id){
+  try{await api('/api/owner/support/'+id+'/close',{method:'POST'});toast('Marked resolved.');boot();}catch(e){toast(e.message)}
 }
 
 /* ---------- how it works guide ---------- */
