@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>School Scheduler</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#151b2c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scheduler">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root{
     --ink:#1a2233; --ink2:#5b6478; --ink3:#8b93a7; --surface:#f4f6fa; --card:#fff;
@@ -460,14 +466,20 @@ function enlargeId(id,name){
   <button class="btn" onclick="closeModal();decide(${id},true)">Approve</button>
   <button class="btn danger" onclick="closeModal();decide(${id},false)">Reject</button></div>`);
 }
-function showUpgrade(){
+async function showUpgrade(){
+  const b=await api('/api/admin/billing').catch(()=>({stripeEnabled:false}));
   openModal(`<h3 class="sec">Upgrade to Unlimited</h3>
   <p class="note" style="margin-bottom:12px">The free plan includes <b>3 classes/programs, 3 teachers, and 10 students</b>.
-  A subscription unlocks unlimited everything for your school. To purchase, contact your provider — you'll receive an
-  upgrade code to enter below.</p>
+  A subscription unlocks unlimited everything for your school.</p>
+  ${b.stripeEnabled?`<button class="btn" onclick="goCheckout()">💳 Subscribe with card</button>
+  <p class="note" style="margin:12px 0 4px">Or enter an upgrade code:</p>`:
+  `<p class="note" style="margin-bottom:8px">To purchase, contact your provider — you'll receive an upgrade code to enter below.</p>`}
   <div class="field"><label>Upgrade code</label><input id="up_code" placeholder="e.g. SCHOOL-PRO-XXXX"></div>
-  <button class="btn" onclick="doUpgrade()">Activate</button>
+  <button class="btn ${b.stripeEnabled?'ghost':''}" onclick="doUpgrade()">Activate code</button>
   <button class="btn grey" style="margin-left:8px" onclick="closeModal()">Not now</button>`);
+}
+async function goCheckout(){
+  try{const d=await api('/api/admin/checkout',{method:'POST'});location.href=d.url;}catch(e){toast(e.message)}
 }
 async function doUpgrade(){
   try{const d=await api('/api/admin/upgrade',{method:'POST',body:{code:$('up_code').value}});
@@ -611,6 +623,8 @@ function showGuide(){
   <p style="margin-top:14px"><button class="btn" onclick="closeModal()">Got it</button></p></div>`);
 }
 
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+if(location.search.includes('upgraded=1')){history.replaceState({},'','/');setTimeout(()=>toast('🎉 Subscription active — your school is now on the Unlimited plan.'),800);}
 boot();
 </script>
 </body>

@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS photos(
 try { db.exec("ALTER TABLE users ADD COLUMN student_id TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE users ADD COLUMN id_photo TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN plan TEXT DEFAULT 'free'"); } catch (_) { /* column exists */ }
+try { db.exec("ALTER TABLE schools ADD COLUMN stripe_sub TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 
 /* ---------------- plans ---------------- */
 const FREE_LIMITS = { programs: 3, teachers: 3, students: 10 };
@@ -121,8 +122,35 @@ if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
   P.run(sid, 'Robotics Lab', 'class', teach.lastInsertRowid, 'STEM Lab', 3, '3', '15:30', '17:00', iso(start), iso(end), '🤖');
 }
 
+/* ---------------- stripe (optional — enabled when env keys are set) ---------------- */
+const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_PRICE = process.env.STRIPE_PRICE_ID || '';
+const STRIPE_WH = process.env.STRIPE_WEBHOOK_SECRET || '';
+let stripe = null;
+if (STRIPE_KEY) { try { stripe = require('stripe')(STRIPE_KEY); } catch (e) { console.error('stripe init failed:', e.message); } }
+
 /* ---------------- helpers ---------------- */
 const app = express();
+
+/* Stripe webhook needs the RAW body, so register it before the JSON parser */
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  if (!stripe || !STRIPE_WH) return res.status(400).end();
+  let event;
+  try { event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WH); }
+  catch (err) { return res.status(400).send(`Webhook error: ${err.message}`); }
+  if (event.type === 'checkout.session.completed') {
+    const s = event.data.object;
+    const schoolId = Number(s.metadata && s.metadata.school_id);
+    if (schoolId) db.prepare("UPDATE schools SET plan='pro', stripe_sub=? WHERE id=?")
+      .run(s.subscription || '', schoolId);
+  }
+  if (event.type === 'customer.subscription.deleted') {
+    const sub = event.data.object;
+    db.prepare("UPDATE schools SET plan='free', stripe_sub='' WHERE stripe_sub=?").run(sub.id);
+  }
+  res.json({ received: true });
+});
+
 app.use(express.json({ limit: '8mb' }));
 app.use(cookieParser());
 
@@ -371,6 +399,25 @@ app.post('/api/teacher/attendance', auth(['teacher']), approvedOnly, (req, res) 
 /* ---------------- admin ---------------- */
 const adm = [auth(['admin']), approvedOnly];
 
+app.get('/api/admin/billing', ...adm, (_req, res) => {
+  res.json({ stripeEnabled: !!(stripe && STRIPE_PRICE) });
+});
+
+app.post('/api/admin/checkout', ...adm, async (req, res) => {
+  if (!stripe || !STRIPE_PRICE) return res.status(400).json({ error: 'Card payments are not set up — use an upgrade code instead.' });
+  try {
+    const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
+      success_url: base + '/?upgraded=1',
+      cancel_url: base + '/',
+      metadata: { school_id: String(req.user.school_id) },
+    });
+    res.json({ url: session.url });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not start checkout: ' + e.message }); }
+});
+
 app.post('/api/admin/upgrade', ...adm, (req, res) => {
   const { code } = req.body || {};
   if ((code || '').trim() !== UPGRADE_CODE)
@@ -512,6 +559,8 @@ app.delete('/api/admin/photos/:id', ...adm, (req, res) => {
 });
 
 /* ---------------- static ---------------- */
+const PUBLIC_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+PUBLIC_FILES.forEach(f => app.get('/' + f, (_req, res) => res.sendFile(path.join(__dirname, f))));
 app.get('/mockup', (_req, res) => res.sendFile(path.join(__dirname, 'mockup.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: 'Server error.' }); });
