@@ -276,6 +276,7 @@ function showLogin(){
   <div class="field"><label>Email</label><input id="li_email" type="email" autocomplete="username"></div>
   <div class="field"><label>Password</label><input id="li_pass" type="password" autocomplete="current-password"></div>
   <button class="btn" onclick="doLogin()">Log in</button>
+  <p class="note" style="margin-top:10px"><a href="#" onclick="showForgot();return false" style="color:var(--brand);font-weight:700">Forgot password?</a></p>
   <p class="note" style="margin-top:10px">Demo accounts: admin@demo.school / admin123 · rivera@demo.school / teach123 · maya@demo.school / learn123</p>`);
 }
 async function doLogin(){
@@ -319,6 +320,25 @@ async function doSignup(){
       email:$('su_email').value,password:$('su_pass').value}});
     ID_PHOTO='';closeModal();toast(d.message);
   }catch(e){toast(e.message)}
+}
+function showForgot(){
+  openModal(`<h3 class="sec">Forgot password</h3>
+  <p class="note" style="margin-bottom:10px">Enter your account email and we'll get you back in.</p>
+  <div class="field"><label>Email</label><input id="fg_email" type="email"></div>
+  <button class="btn" onclick="doForgot()">Reset my password</button>`);
+}
+async function doForgot(){
+  try{const d=await api('/api/forgot',{method:'POST',body:{email:$('fg_email').value}});
+    closeModal();toast(d.message);}catch(e){toast(e.message)}
+}
+function showResetForm(token){
+  openModal(`<h3 class="sec">Set a new password</h3>
+  <div class="field"><label>New password</label><input id="rp_pass" type="password"></div>
+  <button class="btn" onclick="doReset('${token}')">Save new password</button>`);
+}
+async function doReset(token){
+  try{const d=await api('/api/reset',{method:'POST',body:{token,password:$('rp_pass').value}});
+    closeModal();history.replaceState({},'',location.pathname);toast(d.message);showLogin();}catch(e){toast(e.message)}
 }
 function renderPending(){
   app.innerHTML=`<div class="card center" style="text-align:center;margin-top:40px">
@@ -579,12 +599,14 @@ async function renderData(pane){
     ${users.filter(u=>u.role==='student').map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.student_id||'—')}</td><td>${esc(u.grade||'—')}</td>
       <td><span class="pill ${u.status==='approved'?'open':u.status==='pending'?'wait':'full'}">${u.status}</span></td>
       <td>${u.attendance_pct}%</td>
-      <td><button class="btn sm danger" onclick="delUser(${u.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="6" class="note">No students yet — they sign up from the landing page.</td></tr>'}</table></div></div>
+      <td style="white-space:nowrap"><button class="btn sm grey" onclick="resetPw(${u.id})">Reset PW</button>
+      <button class="btn sm danger" onclick="delUser(${u.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="6" class="note">No students yet — they sign up from the landing page.</td></tr>'}</table></div></div>
   <div class="card"><b style="font-size:14px">Teachers</b>
     <div class="tbl-wrap"><table><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr>
     ${users.filter(u=>u.role==='teacher').map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
       <td><span class="pill ${u.status==='approved'?'open':u.status==='pending'?'wait':'full'}">${u.status}</span></td>
-      <td><button class="btn sm danger" onclick="delUser(${u.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="4" class="note">No teachers yet.</td></tr>'}</table></div></div>`;
+      <td style="white-space:nowrap"><button class="btn sm grey" onclick="resetPw(${u.id})">Reset PW</button>
+      <button class="btn sm danger" onclick="delUser(${u.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="4" class="note">No teachers yet.</td></tr>'}</table></div></div>`;
 }
 function editProgram(p){
   p=p||{};
@@ -619,6 +641,16 @@ async function saveProgram(id){
 async function delProgram(id){
   if(!confirm('Delete this program and all its reservations?'))return;
   try{await api('/api/admin/programs/'+id,{method:'DELETE'});toast('Deleted.');renderAdmin();}catch(e){toast(e.message)}
+}
+async function resetPw(id){
+  if(!confirm('Reset this person\'s password? They\'ll get a temporary one to log in with.'))return;
+  try{const d=await api('/api/admin/resetpw',{method:'POST',body:{user_id:id}});
+    openModal(`<h3 class="sec">Temporary password for ${esc(d.name)}</h3>
+    <div class="hrow" style="font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:18px"><span>${d.temp}</span>
+    <button class="btn sm grey" onclick="navigator.clipboard.writeText('${d.temp}');toast('Copied')">Copy</button></div>
+    <p class="note" style="margin-top:10px">Give this to ${esc(d.name)} — they log in with it and can keep using it or ask you to reset again. It won't be shown again.</p>
+    <button class="btn" style="margin-top:8px" onclick="closeModal()">Done</button>`);
+  }catch(e){toast(e.message)}
 }
 async function delUser(id){
   if(!confirm('Remove this person and their reservations?'))return;
@@ -697,7 +729,7 @@ function renderOwner(ov){
         <td><b>${esc(s.name)}</b>${isNew(s)?' <span class="pill open">NEW</span>':''}<br><a href="/${s.slug}" target="_blank" style="font-size:11.5px;color:var(--brand)">/${s.slug}</a></td>
         <td>${planChip(s)}</td><td>${s.programs}</td><td>${s.teachers}</td><td>${s.students}</td>
         <td style="font-size:12px">${esc(s.admin_name||'—')}<br><span class="note">${esc(s.admin_email||'')}</span></td>
-        <td class="note">${(s.created||'').slice(0,10)}</td></tr>`).join('')}
+        <td class="note">${(s.created||'').slice(0,10)}<br><button class="btn sm grey" onclick="ownerResetPw(${s.id},'${esc(s.name)}')">Reset admin PW</button></td></tr>`).join('')}
     </table></div></div>
   <div class="card"><b style="font-size:14px">🔑 Trial code generator</b>
     <p class="note" style="margin:4px 0 10px">Mint single-use codes that unlock the full Unlimited plan for a set time, then auto-revert the school to Free. Hand one to a school to start their trial.</p>
@@ -728,6 +760,16 @@ async function genCodes(){
         <span>${c}<small style="display:block;font-weight:500;color:var(--ink3);font-family:inherit">${d.days}-day trial · single use</small></span>
         <button class="btn sm grey" onclick="navigator.clipboard.writeText('${c}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1200)">Copy</button>
       </div>`).join('');
+  }catch(e){toast(e.message)}
+}
+async function ownerResetPw(sid,name){
+  if(!confirm('Reset the admin password for '+name+'?'))return;
+  try{const d=await api('/api/owner/resetpw',{method:'POST',body:{school_id:sid}});
+    openModal(`<h3 class="sec">Temp password — ${esc(d.name)} (${esc(name)})</h3>
+    <div class="hrow" style="font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:18px"><span>${d.temp}</span>
+    <button class="btn sm grey" onclick="navigator.clipboard.writeText('${d.temp}');toast('Copied')">Copy</button></div>
+    <p class="note" style="margin-top:10px">Send it to ${esc(d.email)}. It won't be shown again.</p>
+    <button class="btn" style="margin-top:8px" onclick="closeModal()">Done</button>`);
   }catch(e){toast(e.message)}
 }
 async function closeTicket(id){
@@ -772,6 +814,8 @@ function showGuide(){
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 if(location.search.includes('upgraded=1')){history.replaceState({},'','/');setTimeout(()=>toast('🎉 Subscription active — your school is now on the Unlimited plan.'),800);}
+const _rt=new URLSearchParams(location.search).get('reset');
+if(_rt) setTimeout(()=>showResetForm(_rt),400);
 boot();
 </script>
 </body>

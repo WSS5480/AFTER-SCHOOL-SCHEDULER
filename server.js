@@ -106,6 +106,37 @@ const CODE_SECRET = process.env.CODE_SECRET || 'scheduler-trial-secret';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@demo.school';
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'owner123';
 const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK_URL || '';
+const RESEND_KEY = process.env.RESEND_API_KEY || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || '';
+const GMAIL_USER = process.env.GMAIL_USER || '';
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
+const emailEnabled = () => !!(GMAIL_USER && GMAIL_APP_PASSWORD) || !!(RESEND_KEY && EMAIL_FROM);
+let mailer = null;
+if (GMAIL_USER && GMAIL_APP_PASSWORD) {
+  try {
+    mailer = require('nodemailer').createTransport({
+      service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    });
+  } catch (e) { console.error('gmail init failed:', e.message); }
+}
+async function sendEmail(to, subject, html) {
+  if (mailer) {
+    await mailer.sendMail({ from: `"School Scheduler" <${GMAIL_USER}>`, to, subject, html });
+    return;
+  }
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + RESEND_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: EMAIL_FROM, to, subject, html }),
+  });
+  if (!r.ok) throw new Error('email send failed: ' + (await r.text()).slice(0, 200));
+}
+function tempPassword() {
+  const CH = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  require('crypto').randomBytes(10).forEach(b => s += CH[b % CH.length]);
+  return s;
+}
 function notify(text) {
   if (!ALERT_WEBHOOK) return;
   fetch(ALERT_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -330,6 +361,45 @@ app.post('/api/login', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/logout', (_req, res) => { res.clearCookie('tok'); res.json({ ok: true }); });
+
+/* ---------------- forgot / reset password ---------------- */
+app.post('/api/forgot', async (req, res) => {
+  const email = ((req.body || {}).email || '').trim();
+  const u = email && q.userByEmail.get(email);
+  if (u && emailEnabled()) {
+    try {
+      const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+      const token = jwt.sign({ reset: u.id }, SECRET, { expiresIn: '30m' });
+      await sendEmail(u.email, 'Reset your School Scheduler password',
+        `<p>Hi ${u.name},</p><p>Tap the link below to set a new password (valid 30 minutes):</p>
+         <p><a href="${base}/?reset=${token}">Reset my password</a></p>
+         <p>If you didn't ask for this, you can ignore this email.</p>`);
+      return res.json({ ok: true, sent: true, message: 'Check your email for a reset link (valid 30 minutes).' });
+    } catch (e) { console.error(e); /* fall through to manual guidance */ }
+  }
+  if (u && !emailEnabled() && u.role === 'admin') {
+    db.prepare('INSERT INTO support_messages(school_id,user_id,message) VALUES(?,?,?)')
+      .run(u.school_id, u.id, `PASSWORD RESET REQUEST — admin ${u.name} <${u.email}> asked to reset their password.`);
+    notify(`🔐 Password reset requested by admin ${u.name} <${u.email}>`);
+  }
+  /* generic response: no email-service configured, or unknown address (don't reveal which) */
+  res.json({ ok: true, sent: false,
+    message: 'Students & teachers: ask your school administrator to reset your password. ' +
+             'School administrators: your reset request has been sent to support.' });
+});
+
+app.post('/api/reset', (req, res) => {
+  const { token, password } = req.body || {};
+  if (!password || password.length < 4) return res.status(400).json({ error: 'Pick a longer password.' });
+  try {
+    const p = jwt.verify(token, SECRET);
+    if (!p.reset) throw 0;
+    const u = q.user.get(p.reset);
+    if (!u) throw 0;
+    db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), u.id);
+    res.json({ ok: true, message: 'Password updated — log in with your new password.' });
+  } catch { res.status(400).json({ error: 'That reset link is invalid or expired. Request a new one.' }); }
+});
 
 app.get('/api/me', auth(), (req, res) => {
   const { pass_hash, ...u } = req.user;
@@ -570,6 +640,15 @@ app.put('/api/admin/users/:id', ...adm, (req, res) => {
     .run(name, grade, status, u.id);
   res.json({ ok: true });
 });
+app.post('/api/admin/resetpw', ...adm, (req, res) => {
+  const u = q.user.get((req.body || {}).user_id);
+  if (!u || u.school_id !== req.user.school_id || u.role === 'admin')
+    return res.status(400).json({ error: 'Cannot reset that account here.' });
+  const temp = tempPassword();
+  db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(temp, 10), u.id);
+  res.json({ ok: true, name: u.name, temp });
+});
+
 app.delete('/api/admin/users/:id', ...adm, (req, res) => {
   const u = q.user.get(req.params.id);
   if (!u || u.school_id !== req.user.school_id || u.role === 'admin')
@@ -726,6 +805,15 @@ app.post('/api/owner/gencodes', ownerAuth, (req, res) => {
     codes.push(`PRO-${days}D-${nonce}-${trialSig(String(days), nonce)}`);
   }
   res.json({ days, codes });
+});
+
+app.post('/api/owner/resetpw', ownerAuth, (req, res) => {
+  const admin = db.prepare("SELECT * FROM users WHERE school_id=? AND role='admin' ORDER BY id LIMIT 1")
+    .get((req.body || {}).school_id);
+  if (!admin) return res.status(404).json({ error: 'No admin account found for that school.' });
+  const temp = tempPassword();
+  db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(temp, 10), admin.id);
+  res.json({ ok: true, name: admin.name, email: admin.email, temp });
 });
 
 app.post('/api/owner/support/:id/close', ownerAuth, (req, res) => {
