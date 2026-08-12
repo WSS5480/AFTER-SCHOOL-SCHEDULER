@@ -154,7 +154,8 @@
 <script>
 const $=id=>document.getElementById(id);
 const app=$('app');
-let ME=null, SCHOOLS=[], toastT;
+let ME=null, PUB=null, toastT;
+const SLUG=(location.pathname.replace(/\/+$/,'').slice(1)||'').toLowerCase();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',4200)}
 function openModal(html){$('sheet').innerHTML=html;$('modal').classList.add('on')}
@@ -173,9 +174,16 @@ const t12=t=>{let[h,m]=t.split(':').map(Number);const ap=h>=12?'PM':'AM';h=h%12|
 
 /* ---------- boot ---------- */
 async function boot(){
-  SCHOOLS=await api('/api/schools').catch(()=>[]);
   try{ ME=await api('/api/me'); }catch{ ME=null; }
-  if(!ME) return renderLanding();
+  if(!ME){
+    if(SLUG && SLUG!=='mockup'){
+      PUB=await api('/api/slug/'+SLUG).catch(()=>null);
+      if(PUB) return renderLanding();
+      toast('That school link was not found.');
+      return renderStorefront();
+    }
+    return renderStorefront();
+  }
   $('hdr').style.display='flex';
   $('hdrSub').textContent=ME.school.name;
   if(ME.status!=='approved') return renderPending();
@@ -183,14 +191,53 @@ async function boot(){
   if(ME.role==='teacher') return renderTeacher();
   return renderAdmin();
 }
+
+/* ---------- storefront (root, no school selected) ---------- */
+function renderStorefront(){
+  $('hdr').style.display='none';
+  app.innerHTML=`
+  <div style="text-align:center;padding:34px 10px 22px">
+    <div style="font-size:52px">🗓️</div>
+    <h1 style="font-size:30px;font-weight:900;margin:10px 0 6px">School Scheduler</h1>
+    <p class="note" style="font-size:15px;max-width:520px;margin:0 auto">Classes and afterschool programs, reservations, waitlists,
+    and attendance — one simple app for your whole school. Free for up to 3 programs, 3 teachers, and 10 students.</p>
+    <div style="margin-top:20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <button class="btn" style="font-size:16px;padding:13px 22px" onclick="showRegisterSchool()">🏫 Register your school — free</button>
+      <button class="btn ghost" style="font-size:16px;padding:13px 22px" onclick="showLogin()">Log in</button>
+    </div>
+    <p class="note" style="margin-top:14px">Students & teachers: use the link your school gave you (like <b>${location.host}/your-school</b>).</p>
+  </div>
+  <div class="prog-grid" style="max-width:860px;margin:10px auto">
+    <div class="prog"><h4>🎒 Students</h4><div class="meta">See open spots in green, reserve with one tap, join waitlists, and track your attendance score.</div></div>
+    <div class="prog"><h4>📋 Teachers</h4><div class="meta">Your rosters on a calendar, one-tap attendance, and low-attendance flags.</div></div>
+    <div class="prog"><h4>🔑 Admins</h4><div class="meta">Approve accounts with ID-photo checks, build your programs, brand your page, set the rules.</div></div>
+    <div class="prog"><h4>📱 Works everywhere</h4><div class="meta">Phones, iPads, laptops — students can add it to their home screen like an app.</div></div>
+  </div>
+  <p class="note" style="text-align:center;margin-top:8px"><a href="#" onclick="showGuide();return false" style="color:var(--brand);font-weight:700">❓ How the app works</a></p>`;
+}
+function showRegisterSchool(){
+  openModal(`<h3 class="sec">Register your school</h3>
+  <p class="note" style="margin-bottom:12px">Takes one minute. You'll get a private link for your school and an admin account — free plan, no card needed.</p>
+  <div class="field"><label>School name</label><input id="rs_name" placeholder="e.g. Patriots High School"></div>
+  <div class="field"><label>District / tagline (optional)</label><input id="rs_sub" placeholder="e.g. Mission, Texas · Home of the Patriots"></div>
+  <div class="row2"><div class="field"><label>Your name</label><input id="rs_admin"></div>
+  <div class="field"><label>Your email</label><input id="rs_email" type="email"></div></div>
+  <div class="field"><label>Password</label><input id="rs_pass" type="password"></div>
+  <button class="btn" onclick="doRegisterSchool()">Create my school</button>`);
+}
+async function doRegisterSchool(){
+  try{
+    const d=await api('/api/register-school',{method:'POST',body:{school_name:$('rs_name').value,subtitle:$('rs_sub').value,
+      admin_name:$('rs_admin').value,admin_email:$('rs_email').value,admin_password:$('rs_pass').value}});
+    location.href='/'+d.slug+'?welcome=1';
+  }catch(e){toast(e.message)}
+}
 async function logout(){await api('/api/logout',{method:'POST'});location.reload()}
 
-/* ---------- landing ---------- */
+/* ---------- per-school landing (/<slug>) ---------- */
 async function renderLanding(){
   $('hdr').style.display='none';
-  const sid=SCHOOLS[0]?.id;
-  let pub={school:{name:'School Scheduler',subtitle:''},programs:[],photos:[]};
-  if(sid) pub=await api('/api/schools/'+sid+'/public').catch(()=>pub);
+  const pub=PUB;
   const grads=['g2','g3','g4','g1'];
   app.innerHTML=`
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:6px 2px 14px">
@@ -214,6 +261,8 @@ async function renderLanding(){
     </div></div>
   <p class="note">New here? <b>Sign Up</b> — an administrator approves your account before you can reserve or teach.
   &nbsp;·&nbsp; <a href="#" onclick="showGuide();return false" style="color:var(--brand);font-weight:700">❓ How the app works</a></p>`;
+  if(location.search.includes('welcome=1')){history.replaceState({},'','/'+SLUG);
+    setTimeout(()=>toast('🎉 Your school is live! This page is your school\'s private link — share it with students and teachers. Log in to start adding programs.'),600);}
 }
 const daysLabel=days=>days.split(',').map(n=>['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][+n]).join(' & ');
 
@@ -229,8 +278,8 @@ async function doLogin(){
     closeModal();boot();}catch(e){toast(e.message)}
 }
 function showSignup(){
-  openModal(`<h3 class="sec">Create an account</h3>
-  <div class="field"><label>School</label><select id="su_school">${SCHOOLS.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+  if(!PUB) return toast('Open your school\'s link first (like '+location.host+'/your-school), then sign up there.');
+  openModal(`<h3 class="sec">Create an account · ${esc(PUB.school.name)}</h3>
   <div class="field"><label>I am a…</label><select id="su_role" onchange="document.getElementById('su_sidwrap').style.display=this.value==='student'?'':'none'"><option value="student">Student</option><option value="teacher">Teacher</option></select></div>
   <div class="row2"><div class="field"><label>Full name</label><input id="su_name"></div>
   <div class="field"><label>Grade (students)</label><input id="su_grade" placeholder="e.g. 5"></div></div>
@@ -260,7 +309,7 @@ async function doSignup(){
   if($('su_role').value==='student'&&!$('su_sid').value.trim()) return toast('Please enter your Student ID — it\'s required for student accounts.');
   if($('su_role').value==='student'&&!ID_PHOTO) return toast('Please attach a photo of your school ID — it\'s required for student accounts.');
   try{
-    const d=await api('/api/signup',{method:'POST',body:{school_id:+$('su_school').value,role:$('su_role').value,
+    const d=await api('/api/signup',{method:'POST',body:{school_id:PUB.school.id,role:$('su_role').value,
       name:$('su_name').value,grade:$('su_grade').value,student_id:$('su_sid').value,id_photo:ID_PHOTO,
       email:$('su_email').value,password:$('su_pass').value}});
     ID_PHOTO='';closeModal();toast(d.message);
@@ -422,7 +471,11 @@ async function renderAdmin(){
       ${meter('Teachers (approved)',u.teachers,lim?lim.teachers:0)}
       ${meter('Students (approved)',u.students,lim?lim.students:0)}
       ${u.plan==='free'?`<p class="note">Free plan includes up to 3 classes/programs, 3 teachers, and 10 students. Subscribe for unlimited.</p>`:'<p class="note">Unlimited classes, teachers, and students.</p>'}</div>
-      <div class="card"><b style="font-size:14px">Quick links</b><p class="note" style="margin-top:6px">
+      <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div><b style="font-size:14px">📣 Your school's link</b>
+      <p class="note" style="margin-top:4px"><b id="shareLink">${location.origin}/${ME.school.slug||''}</b><br>Share it with students and teachers — they sign up there and land in your approval queue.</p></div>
+      <button class="btn sm" onclick="navigator.clipboard.writeText($('shareLink').textContent);toast('Link copied!')">Copy link</button></div></div>
+    <div class="card"><b style="font-size:14px">Quick links</b><p class="note" style="margin-top:6px">
       Approve new accounts in <b>Approvals</b> · add classes, students & teachers in <b>Datasets</b> ·
       set the booking window and attendance threshold in <b>Settings</b> · personalize the public page in <b>Branding</b>.</p></div>`;
   }

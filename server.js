@@ -75,6 +75,17 @@ try { db.exec("ALTER TABLE users ADD COLUMN id_photo TEXT DEFAULT ''"); } catch 
 try { db.exec("ALTER TABLE schools ADD COLUMN plan TEXT DEFAULT 'free'"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN stripe_sub TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
 try { db.exec("ALTER TABLE schools ADD COLUMN plan_expires TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+try { db.exec("ALTER TABLE schools ADD COLUMN slug TEXT DEFAULT ''"); } catch (_) { /* column exists */ }
+
+function slugify(name) {
+  let base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'school';
+  let slug = base, n = 2;
+  while (db.prepare('SELECT 1 x FROM schools WHERE slug=?').get(slug)) slug = base + '-' + (n++);
+  return slug;
+}
+/* backfill slugs for schools created before multi-tenancy */
+db.prepare("SELECT id,name FROM schools WHERE slug=''").all()
+  .forEach(s => db.prepare('UPDATE schools SET slug=? WHERE id=?').run(slugify(s.name), s.id));
 db.exec(`CREATE TABLE IF NOT EXISTS redeemed_codes(
   code TEXT PRIMARY KEY, school_id INTEGER, redeemed TEXT DEFAULT (datetime('now'))
 );`);
@@ -117,8 +128,8 @@ function planBlocked(schoolId, kind) {
 
 /* ---------------- seed (only when empty) ---------------- */
 if (!db.prepare('SELECT COUNT(*) c FROM schools').get().c) {
-  const s = db.prepare("INSERT INTO schools(name,subtitle) VALUES(?,?)")
-    .run('Lincoln Elementary', 'Jefferson County Schools · Classes & Afterschool Programs');
+  const s = db.prepare("INSERT INTO schools(name,subtitle,slug) VALUES(?,?,?)")
+    .run('Demo Elementary', 'Try the scheduler here — demo school', 'demo');
   const sid = s.lastInsertRowid;
   db.prepare('INSERT INTO settings(school_id) VALUES(?)').run(sid);
   const hash = p => bcrypt.hashSync(p, 10);
@@ -218,10 +229,35 @@ function attendanceStats(studentId) {
 }
 
 /* ---------------- public ---------------- */
-app.get('/api/schools', (_req, res) => {
-  res.json(db.prepare('SELECT id,name,subtitle FROM schools ORDER BY name').all());
+app.post('/api/register-school', (req, res) => {
+  const { school_name, subtitle, admin_name, admin_email, admin_password } = req.body || {};
+  if (!school_name || !admin_name || !admin_email || !admin_password)
+    return res.status(400).json({ error: 'School name, your name, email, and password are all required.' });
+  if (q.userByEmail.get(admin_email))
+    return res.status(409).json({ error: 'That email already has an account. Log in instead.' });
+  const slug = slugify(school_name);
+  const s = db.prepare('INSERT INTO schools(name,subtitle,slug) VALUES(?,?,?)')
+    .run(school_name.trim(), (subtitle || '').trim(), slug);
+  db.prepare('INSERT INTO settings(school_id) VALUES(?)').run(s.lastInsertRowid);
+  const a = db.prepare("INSERT INTO users(school_id,role,name,email,pass_hash,status) VALUES(?,?,?,?,?,'approved')")
+    .run(s.lastInsertRowid, 'admin', admin_name.trim(), admin_email.trim(), bcrypt.hashSync(admin_password, 10));
+  res.cookie('tok', jwt.sign({ uid: a.lastInsertRowid }, SECRET, { expiresIn: '30d' }),
+    { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
+  res.json({ ok: true, slug });
 });
-app.get('/api/schools/:id/public', (req, res) => {
+
+app.get('/api/slug/:slug', (req, res) => {
+  const school = db.prepare('SELECT id,name,subtitle,slug FROM schools WHERE slug=?').get(req.params.slug.toLowerCase());
+  if (!school) return res.status(404).json({ error: 'School not found' });
+  const programs = db.prepare(
+    `SELECT p.*, u.name teacher FROM programs p LEFT JOIN users u ON u.id=p.teacher_id WHERE p.school_id=? ORDER BY p.name`
+  ).all(school.id);
+  const photos = db.prepare('SELECT id,caption,data FROM photos WHERE school_id=?').all(school.id);
+  res.json({ school, programs, photos });
+});
+
+app.get('/api/schools/:id/public', auth(), (req, res) => {
+  if (Number(req.params.id) !== req.user.school_id) return res.status(403).json({ error: 'Not your school.' });
   const school = q.school.get(req.params.id);
   if (!school) return res.status(404).json({ error: 'School not found' });
   const programs = db.prepare(
@@ -594,6 +630,12 @@ const PUBLIC_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512
 PUBLIC_FILES.forEach(f => app.get('/' + f, (_req, res) => res.sendFile(path.join(__dirname, f))));
 app.get('/mockup', (_req, res) => res.sendFile(path.join(__dirname, 'mockup.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+/* per-school pages: /<slug> serves the app, which reads the slug client-side */
+app.get('/:slug', (req, res) => {
+  const exists = db.prepare('SELECT 1 x FROM schools WHERE slug=?').get(req.params.slug.toLowerCase());
+  if (exists) return res.sendFile(path.join(__dirname, 'index.html'));
+  res.redirect('/');
+});
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: 'Server error.' }); });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Scheduler running on :${PORT}`));
