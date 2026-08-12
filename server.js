@@ -714,6 +714,20 @@ app.get('/api/owner/overview', ownerAuth, (_req, res) => {
   });
 });
 
+app.post('/api/owner/gencodes', ownerAuth, (req, res) => {
+  let { days, count } = req.body || {};
+  days = Math.max(1, Math.min(3650, Number(days) || 30));
+  count = Math.max(1, Math.min(50, Number(count) || 5));
+  const CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    let nonce = '';
+    crypto.randomBytes(6).forEach(b => nonce += CH[b % CH.length]);
+    codes.push(`PRO-${days}D-${nonce}-${trialSig(String(days), nonce)}`);
+  }
+  res.json({ days, codes });
+});
+
 app.post('/api/owner/support/:id/close', ownerAuth, (req, res) => {
   db.prepare("UPDATE support_messages SET status='closed' WHERE id=?").run(req.params.id);
   res.json({ ok: true });
