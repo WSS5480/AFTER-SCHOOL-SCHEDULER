@@ -162,15 +162,16 @@ function planUsage(schoolId) {
     students: db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND role='student' AND status='approved'").get(schoolId).c,
   };
 }
-function planBlocked(schoolId, kind) {
+function planBlocked(schoolId, kind, verb) {
   const u = planUsage(schoolId);
   if (u.plan !== 'free') return null;
+  const v = verb || 'add';
   if (kind === 'programs' && u.programs >= FREE_LIMITS.programs)
-    return `Free plan limit reached (${FREE_LIMITS.programs} classes/programs). Upgrade to add more.`;
+    return `Free plan limit reached (${FREE_LIMITS.programs} classes/programs). Upgrade to ${v} more.`;
   if (kind === 'teachers' && u.teachers >= FREE_LIMITS.teachers)
-    return `Free plan limit reached (${FREE_LIMITS.teachers} teachers). Upgrade to approve more.`;
+    return `Free plan limit reached (${FREE_LIMITS.teachers} teachers). Upgrade to ${v} more.`;
   if (kind === 'students' && u.students >= FREE_LIMITS.students)
-    return `Free plan limit reached (${FREE_LIMITS.students} students). Upgrade to approve more.`;
+    return `Free plan limit reached (${FREE_LIMITS.students} students). Upgrade to ${v} more.`;
   return null;
 }
 
@@ -354,7 +355,7 @@ app.post('/api/signup', (req, res) => {
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body || {};
   const u = email && q.userByEmail.get(email);
-  if (!u || !bcrypt.compareSync(password || '', u.pass_hash))
+  if (!u || !u.pass_hash || !bcrypt.compareSync(password || '', u.pass_hash))
     return res.status(401).json({ error: 'Wrong email or password.' });
   res.cookie('tok', jwt.sign({ uid: u.id }, SECRET, { expiresIn: '30d' }),
     { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
@@ -615,7 +616,7 @@ app.post('/api/admin/approve', ...adm, (req, res) => {
   const u = q.user.get(user_id);
   if (!u || u.school_id !== req.user.school_id) return res.status(404).json({ error: 'User not found.' });
   if (approve) {
-    const block = planBlocked(req.user.school_id, u.role === 'teacher' ? 'teachers' : 'students');
+    const block = planBlocked(req.user.school_id, u.role === 'teacher' ? 'teachers' : 'students', 'approve');
     if (block) return res.status(403).json({ error: block, upgrade: true });
   }
   db.prepare('UPDATE users SET status=? WHERE id=?').run(approve ? 'approved' : 'rejected', user_id);
@@ -640,6 +641,175 @@ app.put('/api/admin/users/:id', ...adm, (req, res) => {
     .run(name, grade, status, u.id);
   res.json({ ok: true });
 });
+/* ---------------- roster building: add one · import a list · invite ------- */
+/* Admin-created people are pre-approved (the admin vouches for them) and have no
+   password until they accept an invite or the admin hands them a temp one.      */
+function createPerson(schoolId, role, row) {
+  const name = String(row.name || '').trim();
+  const email = String(row.email || '').trim();
+  if (!name && !email) return { skipped: 'blank row' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { skipped: `no valid email (${name || 'unnamed'})` };
+  if (q.userByEmail.get(email)) return { skipped: `${email} already has an account` };
+  const sid = String(row.student_id || '').trim();
+  if (role === 'student' && sid && db.prepare(
+    "SELECT 1 x FROM users WHERE school_id=? AND role='student' AND student_id=? AND student_id<>''").get(schoolId, sid))
+    return { skipped: `Student ID ${sid} already registered` };
+  const temp = tempPassword();
+  const r = db.prepare(`INSERT INTO users(school_id,role,name,email,pass_hash,grade,student_id,status)
+    VALUES(?,?,?,?,?,?,?, 'approved')`)
+    .run(schoolId, role, name || email.split('@')[0], email, bcrypt.hashSync(temp, 10),
+      String(row.grade || '').trim(), role === 'student' ? sid : '');
+  return { id: r.lastInsertRowid, name: name || email.split('@')[0], email, temp };
+}
+async function sendInvite(user, schoolName, whoAdded) {
+  const token = jwt.sign({ reset: user.id }, SECRET, { expiresIn: '14d' });
+  const base = process.env.APP_URL || '';
+  await sendEmail(user.email, `You've been added to ${schoolName} on School Scheduler`,
+    `<p>Hi ${user.name},</p>
+     <p>${whoAdded} added you to <b>${schoolName}</b>${user.role === 'teacher' ? ' as a teacher' : ''}.</p>
+     <p>Set your password and you're in — no approval needed:</p>
+     <p><a href="${base}/?reset=${token}">Set my password</a></p>
+     <p style="color:#667">This link works for 14 days.</p>`);
+}
+
+app.post('/api/admin/people', ...adm, async (req, res) => {
+  const b = req.body || {};
+  const role = b.role === 'teacher' ? 'teacher' : 'student';
+  const block = planBlocked(req.user.school_id, role === 'teacher' ? 'teachers' : 'students');
+  if (block) return res.status(403).json({ error: block, upgrade: true });
+  const made = createPerson(req.user.school_id, role, b);
+  if (made.skipped) return res.status(409).json({ error: made.skipped });
+  let invited = false, mailError = '';
+  if (b.invite !== false && emailEnabled()) {
+    try {
+      await sendInvite({ ...made, role }, q.school.get(req.user.school_id).name, req.user.name);
+      invited = true;
+    } catch (e) { mailError = e.message; }
+  }
+  res.json({ ok: true, person: { name: made.name, email: made.email }, invited, temp: invited ? null : made.temp, mailError });
+});
+
+/* Accepts either parsed rows or raw pasted/CSV text. Respects the plan limits and
+   reports exactly what happened to every row.                                     */
+app.post('/api/admin/people/bulk', ...adm, async (req, res) => {
+  const b = req.body || {};
+  const role = b.role === 'teacher' ? 'teacher' : 'student';
+  let rows = Array.isArray(b.rows) ? b.rows : [];
+  if (!rows.length && b.text) rows = parseRoster(String(b.text));
+  if (!rows.length) return res.status(400).json({ error: 'Nothing to import — paste a list or choose a file.' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'That is over 1000 rows — split the file.' });
+
+  const usage = planUsage(req.user.school_id);
+  const cap = usage.limits ? (role === 'teacher' ? usage.limits.teachers - usage.teachers
+    : usage.limits.students - usage.students) : Infinity;
+
+  const added = [], skipped = [];
+  let blockedByPlan = 0;
+  for (const row of rows) {
+    if (added.length >= cap) { blockedByPlan++; continue; }
+    const made = createPerson(req.user.school_id, role, row);
+    if (made.skipped) skipped.push(made.skipped); else added.push(made);
+  }
+  let invited = 0, mailError = '';
+  if (b.invite !== false && emailEnabled() && added.length) {
+    const school = q.school.get(req.user.school_id).name;
+    for (const p of added) {
+      try { await sendInvite({ ...p, role }, school, req.user.name); invited++; }
+      catch (e) { mailError = e.message; }
+    }
+  }
+  res.json({
+    ok: true, role, added: added.length, invited, skipped, blockedByPlan,
+    /* temp passwords only matter when we could not email them */
+    credentials: invited === added.length ? [] : added.map(p => ({ name: p.name, email: p.email, temp: p.temp })),
+    mailError,
+    limitNote: blockedByPlan ? `${blockedByPlan} not added — the free plan allows ${role === 'teacher' ? FREE_LIMITS.teachers + ' teachers' : FREE_LIMITS.students + ' students'}. Upgrade to add the rest.` : '',
+  });
+});
+
+/* Server-side parser so a paste, a CSV file and a tab-separated spreadsheet copy
+   all behave the same. Recognises common header spellings; falls back to
+   "email only" or "name, email" when there is no header row.                     */
+function parseRoster(text) {
+  const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const split = l => l.includes('\t') ? l.split('\t') : (l.match(/("[^"]*"|[^,]+)/g) || []).map(s => s.replace(/^"|"$/g, ''));
+  const norm = s => String(s || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+  const HEAD = {
+    name: ['name', 'fullname', 'studentname', 'teachername', 'student', 'firstlast'],
+    email: ['email', 'emailaddress', 'mail', 'schoolemail'],
+    grade: ['grade', 'gradelevel', 'year', 'yearlevel'],
+    student_id: ['studentid', 'id', 'idnumber', 'sid', 'studentnumber'],
+    first: ['first', 'firstname', 'givenname'],
+    last: ['last', 'lastname', 'surname', 'familyname'],
+  };
+  const cells0 = split(lines[0]).map(norm);
+  const mapIdx = {};
+  let hasHeader = false;
+  cells0.forEach((c, i) => {
+    for (const key of Object.keys(HEAD)) if (HEAD[key].includes(c) && mapIdx[key] === undefined) { mapIdx[key] = i; hasHeader = true; }
+  });
+  const body = hasHeader ? lines.slice(1) : lines;
+  return body.map(line => {
+    const cells = split(line).map(s => String(s).trim());
+    if (!hasHeader) {
+      const email = cells.find(c => /@/.test(c)) || '';
+      const rest = cells.filter(c => c !== email);
+      return { name: rest.slice(0, 2).join(' ').trim(), email, grade: rest[2] || '', student_id: rest[3] || '' };
+    }
+    const get = k => (mapIdx[k] !== undefined ? cells[mapIdx[k]] || '' : '');
+    let name = get('name');
+    if (!name && (mapIdx.first !== undefined || mapIdx.last !== undefined))
+      name = [get('first'), get('last')].filter(Boolean).join(' ');
+    return { name, email: get('email'), grade: get('grade'), student_id: get('student_id') };
+  }).filter(r => r.email || r.name);
+}
+/* Preview endpoint so the admin sees what will happen before anything is created */
+app.post('/api/admin/people/preview', ...adm, (req, res) => {
+  const rows = parseRoster(String((req.body || {}).text || ''));
+  const seen = new Set();
+  const marked = rows.map(r => {
+    const problem = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email || '') ? 'no valid email'
+      : q.userByEmail.get(r.email) ? 'already has an account'
+        : seen.has(r.email.toLowerCase()) ? 'duplicate in this list' : '';
+    if (r.email) seen.add(r.email.toLowerCase());
+    return { ...r, problem };
+  });
+  res.json({ rows: marked, ok: marked.filter(r => !r.problem).length, problems: marked.filter(r => r.problem).length });
+});
+
+/* Remove people in bulk. Students lose their reservations; teachers are unassigned
+   from their programs (the programs survive, just without a teacher).            */
+app.post('/api/admin/people/remove', ...adm, (req, res) => {
+  const ids = (req.body || {}).ids;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Nobody selected.' });
+  if (ids.length > 500) return res.status(400).json({ error: 'Too many at once — do it in batches of 500.' });
+  const people = ids.map(id => q.user.get(id))
+    .filter(u => u && u.school_id === req.user.school_id && u.role !== 'admin');
+  if (!people.length) return res.status(400).json({ error: 'Nothing removable in that selection.' });
+
+  let unassigned = 0, reservations = 0;
+  const tx = db.transaction(() => {
+    for (const u of people) {
+      if (u.role === 'teacher') {
+        unassigned += db.prepare('UPDATE programs SET teacher_id=NULL WHERE teacher_id=? AND school_id=?')
+          .run(u.id, req.user.school_id).changes;
+      } else {
+        reservations += db.prepare('DELETE FROM reservations WHERE student_id=?').run(u.id).changes;
+      }
+      db.prepare('DELETE FROM users WHERE id=?').run(u.id);
+    }
+  });
+  tx();
+  const kind = people[0].role === 'teacher' ? 'teacher' : 'student';
+  res.json({
+    ok: true, removed: people.length, unassigned, reservations,
+    message: `${people.length} ${kind}${people.length === 1 ? '' : 's'} removed` +
+      (unassigned ? ` · ${unassigned} program${unassigned === 1 ? '' : 's'} left without a teacher` : '') +
+      (reservations ? ` · ${reservations} reservation${reservations === 1 ? '' : 's'} deleted` : '') + '.',
+  });
+});
+
 app.post('/api/admin/resetpw', ...adm, (req, res) => {
   const u = q.user.get((req.body || {}).user_id);
   if (!u || u.school_id !== req.user.school_id || u.role === 'admin')
@@ -654,7 +824,8 @@ app.delete('/api/admin/users/:id', ...adm, (req, res) => {
   if (!u || u.school_id !== req.user.school_id || u.role === 'admin')
     return res.status(400).json({ error: 'Cannot delete this user.' });
   db.prepare('DELETE FROM users WHERE id=?').run(u.id);
-  db.prepare('DELETE FROM reservations WHERE student_id=?').run(u.id);
+  if (u.role === 'teacher') db.prepare('UPDATE programs SET teacher_id=NULL WHERE teacher_id=?').run(u.id);
+  else db.prepare('DELETE FROM reservations WHERE student_id=?').run(u.id);
   res.json({ ok: true });
 });
 
@@ -825,6 +996,28 @@ app.post('/api/owner/resetpw', ownerAuth, (req, res) => {
 app.post('/api/owner/support/:id/close', ownerAuth, (req, res) => {
   db.prepare("UPDATE support_messages SET status='closed' WHERE id=?").run(req.params.id);
   res.json({ ok: true });
+});
+
+/* ---------------- partner API (read-only, for Int-AI-lisoft HQ) ------------ */
+const PARTNER_KEY = process.env.PARTNER_KEY || '';
+app.get('/api/partner/summary', (req, res) => {
+  if (!PARTNER_KEY || req.get('X-Partner-Key') !== PARTNER_KEY)
+    return res.status(401).json({ error: 'bad partner key' });
+  const week = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19).replace('T', ' ');
+  const schools = db.prepare('SELECT id, plan, plan_expires, created FROM schools').all();
+  res.json({
+    app: 'After-School Scheduler', company: 'Int-AI-lisoft', at: new Date().toISOString(),
+    kpis: {
+      schools: schools.length,
+      trialsWeek: schools.filter(s => (s.created || '') >= week).length,
+      activeTrials: schools.filter(s => s.plan === 'pro' && s.plan_expires).length,
+      subscribers: schools.filter(s => s.plan === 'pro' && !s.plan_expires).length,
+      students: db.prepare("SELECT COUNT(*) c FROM users WHERE role='student' AND status='approved'").get().c,
+      users: db.prepare('SELECT COUNT(*) c FROM users').get().c,
+      openSupport: db.prepare("SELECT COUNT(*) c FROM support_messages WHERE status='open'").get().c,
+    },
+    services: { email: emailEnabled(), stripe: !!(stripe && STRIPE_PRICE) },
+  });
 });
 
 /* ---------------- static ---------------- */
