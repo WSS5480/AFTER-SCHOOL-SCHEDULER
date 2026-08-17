@@ -489,9 +489,52 @@ app.post('/api/reset', (req, res) => {
   } catch { res.status(400).json({ error: 'That reset link is invalid or expired. Request a new one.' }); }
 });
 
+/* Practice sandbox.
+   Entering swaps your session to the demo school's admin and remembers who you
+   really are in a separate cookie, so leaving puts you back exactly where you
+   were — no logging out, no touching your real school's data.                 */
+app.post('/api/sandbox/enter', auth(), (req, res) => {
+  const demo = db.prepare("SELECT * FROM schools WHERE slug='demo'").get();
+  if (!demo) return res.status(404).json({ error: 'The practice school is not available on this instance.' });
+  if (req.user.school_id === demo.id) return res.status(400).json({ error: 'You are already in the practice school.' });
+  const demoAdmin = db.prepare("SELECT * FROM users WHERE school_id=? AND role='admin' ORDER BY id LIMIT 1").get(demo.id);
+  if (!demoAdmin) return res.status(404).json({ error: 'The practice school has no admin account.' });
+  res.cookie('home', jwt.sign({ uid: req.user.id }, SECRET, { expiresIn: '1d' }),
+    { httpOnly: true, sameSite: 'lax', maxAge: 864e5 });
+  res.cookie('tok', jwt.sign({ uid: demoAdmin.id }, SECRET, { expiresIn: '1d' }),
+    { httpOnly: true, sameSite: 'lax', maxAge: 864e5 });
+  res.json({ ok: true, slug: demo.slug });
+});
+
+app.post('/api/sandbox/exit', (req, res) => {
+  try {
+    const { uid } = jwt.verify(req.cookies.home || '', SECRET);
+    const u = q.user.get(uid);
+    if (!u) throw 0;
+    const school = q.school.get(u.school_id);
+    res.clearCookie('home');
+    res.cookie('tok', jwt.sign({ uid: u.id }, SECRET, { expiresIn: '30d' }),
+      { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
+    const usage = planUsage(u.school_id);
+    res.json({ ok: true, slug: school ? school.slug : '', school: school ? school.name : '',
+      plan: usage.plan, atLimit: usage.plan === 'free' });
+  } catch { res.status(400).json({ error: 'No practice session to leave.' }); }
+});
+
 app.get('/api/me', auth(), (req, res) => {
   const { pass_hash, ...u } = req.user;
-  res.json({ ...u, school: q.school.get(u.school_id), settings: q.settings.get(u.school_id) });
+  let sandbox = null;
+  try {
+    const { uid } = jwt.verify(req.cookies.home || '', SECRET);
+    const home = q.user.get(uid);
+    if (home) {
+      const hs = q.school.get(home.school_id);
+      sandbox = { home: hs ? hs.name : 'your school', slug: hs ? hs.slug : '' };
+    }
+  } catch (_) { /* not in a practice session */ }
+  const school = q.school.get(u.school_id);
+  res.json({ ...u, school, settings: q.settings.get(u.school_id),
+    sandbox, isDemo: !!(school && school.slug === 'demo') });
 });
 
 /* ---------------- student ---------------- */

@@ -191,10 +191,39 @@ async function boot(){ /* returns a promise so ?reset= can wait for it */
   }
   $('hdr').style.display='flex';
   $('hdrSub').textContent=ME.school.name;
+  drawSandboxBar();
   if(ME.status!=='approved') return renderPending();
   if(ME.role==='student') return renderStudent();
   if(ME.role==='teacher') return renderTeacher();
   return renderAdmin();
+}
+
+/* ---------- practice sandbox ---------- */
+function drawSandboxBar(){
+  let bar=document.getElementById('sbBar');
+  if(!ME||!ME.sandbox){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar=document.createElement('div'); bar.id='sbBar';
+    bar.style.cssText='position:sticky;top:0;z-index:40;background:#b45309;color:#fff;padding:9px 14px;'+
+      'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px;font-weight:600';
+    document.body.insertBefore(bar, document.body.firstChild.nextSibling);
+  }
+  bar.innerHTML=`<span>🧪 <b>Practice mode</b> — nothing here touches ${esc(ME.sandbox.home)}.</span>
+    <button onclick="exitSandbox()" style="background:#fff;color:#b45309;border:0;border-radius:8px;padding:7px 13px;font-size:13px;font-weight:800;cursor:pointer">
+      ← Back to ${esc(ME.sandbox.home)}</button>`;
+}
+async function enterSandbox(){
+  try{
+    const d=await api('/api/sandbox/enter',{method:'POST'});
+    location.href='/'+d.slug;
+  }catch(e){toast(e.message)}
+}
+async function exitSandbox(){
+  try{
+    const d=await api('/api/sandbox/exit',{method:'POST'});
+    sessionStorage.setItem('justLeftSandbox', d.atLimit?'1':'0');
+    location.href='/'+d.slug;
+  }catch(e){toast(e.message)}
 }
 
 /* ---------- storefront (root, no school selected) ---------- */
@@ -495,11 +524,28 @@ async function saveAttendance(pid,date,total){
 /* ---------- admin ---------- */
 let atab='dash';
 async function renderAdmin(){
+  const left=sessionStorage.getItem('justLeftSandbox');
+  if(left!==null){
+    sessionStorage.removeItem('justLeftSandbox');
+    setTimeout(()=>{
+      if(left==='1'){
+        openModal(`<h3 class="sec">Welcome back</h3>
+          <p class="note" style="margin-bottom:12px">That was the sandbox — your own school is exactly as you left it.
+          When you're ready to run it for real, the free plan covers a small start and upgrading lifts every limit.</p>
+          <button class="btn" onclick="closeModal();showUpgrade()">See upgrade options</button>
+          <button class="btn grey" style="margin-left:8px" onclick="closeModal()">Keep exploring</button>`);
+      } else { toast('Back in your school — nothing changed while you were practising.'); }
+    },700);
+  }
   app.innerHTML=`
   <div class="apphead"><div class="who">Admin Console<small>${esc(ME.school.name)}</small></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${ME.school.slug==='demo'?'<button class="btn sm" onclick="showTestLogins()">🧪 Test logins</button>':''}
       <button class="btn sm ghost" onclick="showSupport()">🛟 Contact support</button></div></div>
+  ${ME.school.slug!=='demo'&&!ME.sandbox?`<div class="banner" style="background:var(--brand-soft);border-color:#c9d6f5;color:#22315e">
+    <div><b>Want to try something without risk?</b> Practice mode drops you into a sandbox school with sample
+    data — add, book, cancel, break whatever you like. Your real school is untouched, and you can come straight back.
+    <div style="margin-top:8px"><button class="btn sm" onclick="enterSandbox()">🧪 Try it live in the sandbox</button></div></div></div>`:''}
   ${ME.school.slug==='demo'?`<div class="banner" style="background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06">
     <div><b>Practice school — unlimited and safe to break.</b>
     Use <b>🧪 Test logins</b> above to sign in as a student or teacher, and <b>🎓 Getting started</b> for the five-step walkthrough.</div></div>`:''}
