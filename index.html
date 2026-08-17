@@ -174,7 +174,7 @@ const t12=t=>{let[h,m]=t.split(':').map(Number);const ap=h>=12?'PM':'AM';h=h%12|
 
 /* ---------- boot ---------- */
 async function boot(){
-  if(SLUG==='owner'){
+  if(SLUG==='owner'||SLUG==='office'){
     const ov=await api('/api/owner/overview').catch(()=>null);
     if(ov) return renderOwner(ov);
     return renderOwnerLogin();
@@ -879,7 +879,7 @@ async function doOwnerLogin(){
 }
 function renderOwner(ov){
   $('hdr').style.display='flex';
-  $('hdrSub').textContent='Owner dashboard';
+  $('hdrSub').textContent='Owner dashboard · Int-AI-lisoft';
   const k=ov.kpis;
   const planChip=s=>s.plan==='pro'?(s.plan_expires?`<span class="pill wait">⏳ trial → ${s.plan_expires}</span>`:'<span class="pill open">✨ paid</span>'):'<span class="pill full">free</span>';
   const isNew=s=>s.created&&s.created.slice(0,10)>=new Date(Date.now()-7*864e5).toISOString().slice(0,10);

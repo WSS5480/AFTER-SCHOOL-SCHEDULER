@@ -84,7 +84,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS support_messages(
 );`);
 db.exec("UPDATE schools SET created=datetime('now') WHERE created=''");
 
-const RESERVED_SLUGS = ['owner', 'admin', 'api', 'mockup', 'demo-x', 'login', 'signup', 'static', 'assets'];
+const RESERVED_SLUGS = ['owner', 'office', 'admin', 'api', 'mockup', 'demo-x', 'login', 'signup', 'static', 'assets'];
 function slugify(name) {
   let base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'school';
   if (RESERVED_SLUGS.includes(base)) base += '-school';
@@ -1023,12 +1023,36 @@ app.get('/api/partner/summary', (req, res) => {
 /* ---------------- static ---------------- */
 const PUBLIC_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 PUBLIC_FILES.forEach(f => app.get('/' + f, (_req, res) => res.sendFile(path.join(__dirname, f))));
-app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/ui.js', (_req, res) => res.sendFile(path.join(__dirname, 'ui.js')));
+
+/* The page shell. The UI itself lives in ui.js (see build-ui.js) so the app can be
+   deployed by uploading .js files — some browsers block .html downloads outright.
+   If ui.js is missing we fall back to the old index.html, so nothing can break.   */
+const UI_JS = path.join(__dirname, 'ui.js');
+const SHELL = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>School Scheduler</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#151b2c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scheduler">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f4f6fa}</style>
+</head>
+<body><script src="/ui.js?v=${Date.now()}"></script></body>
+</html>`;
+const sendApp = (_req, res) =>
+  fs.existsSync(UI_JS) ? res.type('html').send(SHELL) : res.sendFile(path.join(__dirname, 'index.html'));
+app.get(['/owner', '/office'], sendApp);
+app.get('/', sendApp);
 /* per-school pages: /<slug> serves the app, which reads the slug client-side */
 app.get('/:slug', (req, res) => {
   const exists = db.prepare('SELECT 1 x FROM schools WHERE slug=?').get(req.params.slug.toLowerCase());
-  if (exists) return res.sendFile(path.join(__dirname, 'index.html'));
+  if (exists) return sendApp(req, res);
   res.redirect('/');
 });
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: 'Server error.' }); });
