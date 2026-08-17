@@ -883,9 +883,17 @@ function renderOwner(ov){
   const k=ov.kpis;
   const planChip=s=>s.plan==='pro'?(s.plan_expires?`<span class="pill wait">⏳ trial → ${s.plan_expires}</span>`:'<span class="pill open">✨ paid</span>'):'<span class="pill full">free</span>';
   const isNew=s=>s.created&&s.created.slice(0,10)>=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  OV=ov;
   app.innerHTML=`
   <div class="apphead"><div class="who">Mission Control<small>All schools · alerts · support</small></div>
     <button class="btn sm ghost" onclick="boot()">↻ Refresh</button></div>
+  <div class="atabs">
+    <button class="${otab==='dash'?'on':''}" onclick="otab='dash';renderOwner(OV)">📊 Overview</button>
+    <button class="${otab==='setup'?'on':''}" onclick="otab='setup';renderOwner(OV)">🔑 Logins & setup</button>
+  </div>
+  <div id="opane"></div>`;
+  if(otab==='setup') return drawOwnerSetup();
+  $('opane').innerHTML=`
   <div class="kpis">
     <div class="kpi"><div class="n">${k.total}</div><div class="l">Schools</div></div>
     <div class="kpi"><div class="n" style="color:var(--open)">${k.newWeek}</div><div class="l">New this week</div></div>
@@ -932,6 +940,63 @@ function renderOwner(ov){
   </div>
   <p class="note">Reply to support by emailing the address shown — replies aren't sent from inside the app (yet).</p>`;
   loadEmailStatus();
+}
+let OV=null, otab='dash';
+
+/* ---------- owner: logins & setup ---------- */
+async function drawOwnerSetup(){
+  const p=$('opane'); p.innerHTML='<p class="note">Loading…</p>';
+  let d; try{ d=await api('/api/owner/setup'); }catch(e){ p.innerHTML='<p class="note">'+esc(e.message)+'</p>'; return; }
+  const warnings=d.env.filter(e=>!e.ok&&/OWNER_PASSWORD|JWT_SECRET|CODE_SECRET|DB_PATH/.test(e.key));
+  const row=(label,val,note)=>`<div class="hrow" style="margin-bottom:8px"><span><b>${esc(label)}</b>${note?`<br><span class="note">${note}</span>`:''}</span>
+    <span style="display:flex;align-items:center;gap:8px"><code style="font-family:ui-monospace,Menlo,monospace;font-size:13px">${esc(val)}</code>
+    <button class="btn sm grey" onclick="navigator.clipboard.writeText('${esc(val)}');toast('Copied')">Copy</button></span></div>`;
+  p.innerHTML=`
+  ${warnings.length?`<div class="banner" style="background:var(--miss-bg);border-color:#efb9b9;color:#7a1f1f">
+    <div><b>${warnings.length} thing${warnings.length===1?'':'s'} still on default settings</b>
+    ${warnings.map(w=>`<div style="margin-top:3px">• <b>${esc(w.key)}</b> — ${esc(w.warn)}</div>`).join('')}
+    <div style="margin-top:6px">Fix in Render → your service → Environment.</div></div></div>`:
+    `<div class="banner" style="background:var(--open-bg);border-color:var(--open-line);color:#0f5e2e"><div><b>✓ Secrets look properly configured.</b></div></div>`}
+
+  <div class="card"><b style="font-size:14px">🔐 Your office login</b>
+    <p class="note" style="margin:4px 0 10px">This console. Separate from every school — school admins cannot reach it.</p>
+    ${row('Office URL', d.urls.office)}
+    ${row('Email', d.owner.email, d.owner.usingDefaultEmail?'Default — change OWNER_EMAIL in Render':'')}
+    <div class="hrow"><span><b>Password</b><br><span class="note">${d.owner.usingDefaultPassword
+      ?'<span style="color:var(--miss);font-weight:700">Still the default (owner123) — change OWNER_PASSWORD today</span>'
+      :'Set via OWNER_PASSWORD — not shown here'}</span></span><span class="note">••••••••</span></div>
+  </div>
+
+  <div class="card"><b style="font-size:14px">🧪 Test accounts</b>
+    <p class="note" style="margin:4px 0 10px">${d.demo.slug
+      ? 'Seeded demo school for showing the product. Delete these before a real school uses this instance.'
+      : 'The demo school is no longer present on this instance.'}</p>
+    ${d.demo.slug?row('Demo school link', d.urls.demo):''}
+    <div class="tbl-wrap" style="margin-top:6px"><table>
+      <tr><th>Role</th><th>Email</th><th>Password</th><th></th></tr>
+      ${d.demo.accounts.map(a=>`<tr${a.exists?'':' style="opacity:.45"'}>
+        <td>${esc(a.role)}</td>
+        <td style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">${esc(a.email)}</td>
+        <td style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">${a.exists?esc(a.password):'—'}</td>
+        <td>${a.exists?`<button class="btn sm grey" onclick="navigator.clipboard.writeText('${esc(a.email)}');toast('Email copied')">Copy</button>`:'<span class="pill full">removed</span>'}</td>
+      </tr>`).join('')}
+    </table></div>
+    <p class="note" style="margin-top:8px">Passwords shown are the seeded ones — if someone changed them in the app, use Reset PW instead.</p>
+  </div>
+
+  <div class="card"><b style="font-size:14px">⚙️ Instance checklist</b>
+    <p class="note" style="margin:4px 0 10px">What's switched on. Values are never shown — only whether each is configured.</p>
+    ${d.env.map(e=>`<div class="hrow" style="margin-bottom:6px">
+      <span><b>${esc(e.label)}</b><br><span class="note"><code style="font-size:11.5px">${esc(e.key)}</code>${e.ok?'':' — '+esc(e.warn)}</span></span>
+      <span class="pill ${e.ok?'open':'wait'}">${e.ok?'✓ set':'not set'}</span></div>`).join('')}
+  </div>
+
+  <div class="card"><b style="font-size:14px">🔗 Links</b>
+    ${row('Storefront (public)', d.urls.storefront)}
+    ${d.urls.demo?row('Demo school', d.urls.demo):''}
+    ${row('Your office', d.urls.office)}
+    <p class="note" style="margin-top:8px">Give a school only their own link. Never share your office URL, access-code secret, or any Render environment value.</p>
+  </div>`;
 }
 async function loadEmailStatus(){
   const el=$('em_status'); if(!el) return;

@@ -970,6 +970,44 @@ app.post('/api/owner/gencodes', ownerAuth, (req, res) => {
   res.json({ days, codes });
 });
 
+/* Everything the operator needs to log in, demo, and check the instance is safe.
+   Never returns real secrets — only whether each one is still on its default.   */
+app.get('/api/owner/setup', ownerAuth, (req, res) => {
+  const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const demoSchool = db.prepare("SELECT * FROM schools WHERE slug='demo'").get();
+  const demoAccounts = [
+    { role: 'School admin', email: 'admin@demo.school', password: 'admin123' },
+    { role: 'Teacher', email: 'rivera@demo.school', password: 'teach123' },
+    { role: 'Student', email: 'maya@demo.school', password: 'learn123' },
+  ].map(a => ({ ...a, exists: !!q.userByEmail.get(a.email) }));
+  res.json({
+    owner: { email: OWNER_EMAIL, usingDefaultEmail: OWNER_EMAIL === 'owner@demo.school',
+      usingDefaultPassword: OWNER_PASSWORD === 'owner123' },
+    demo: { school: demoSchool ? demoSchool.name : null, slug: demoSchool ? demoSchool.slug : null,
+      accounts: demoAccounts },
+    env: [
+      { key: 'OWNER_PASSWORD', label: 'Office password', ok: OWNER_PASSWORD !== 'owner123',
+        warn: 'Still the default — anyone who reads the docs can open your office.' },
+      { key: 'JWT_SECRET', label: 'Session secret', ok: SECRET !== 'dev-secret-change-me',
+        warn: 'Still the default — logins could be forged.' },
+      { key: 'CODE_SECRET', label: 'Access-code secret', ok: CODE_SECRET !== 'scheduler-trial-secret',
+        warn: 'Still the default — anyone could mint free Pro codes.' },
+      { key: 'DB_PATH', label: 'Persistent database', ok: !!process.env.DB_PATH,
+        warn: 'Not set — data resets on every deploy.' },
+      { key: 'EMAIL_USER', label: 'Email (invites & resets)', ok: emailEnabled(),
+        warn: 'Not configured — no invite or reset emails go out.' },
+      { key: 'STRIPE_SECRET_KEY', label: 'Card subscriptions', ok: !!(stripe && STRIPE_PRICE),
+        warn: 'Not configured — upgrades happen by access code only.' },
+      { key: 'ALERT_WEBHOOK_URL', label: 'Instant alerts', ok: !!ALERT_WEBHOOK,
+        warn: 'Optional — set it to get pings in Slack/Discord or Int-AI-lisoft HQ.' },
+      { key: 'PARTNER_KEY', label: 'HQ can read this app', ok: !!process.env.PARTNER_KEY,
+        warn: 'Optional — needed for Int-AI-lisoft HQ to show this app\'s numbers.' },
+    ],
+    urls: { office: base + '/office', storefront: base + '/',
+      demo: demoSchool ? base + '/' + demoSchool.slug : null },
+  });
+});
+
 app.get('/api/owner/emailstatus', ownerAuth, (_req, res) => {
   res.json({ enabled: emailEnabled(), via: mailer ? 'gmail' : (RESEND_KEY ? 'resend' : null), from: GMAIL_USER || EMAIL_FROM || null });
 });
