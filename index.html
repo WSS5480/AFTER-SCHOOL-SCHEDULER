@@ -165,7 +165,7 @@ async function api(url,opts={}){
   const r=await fetch(url,{headers:{'Content-Type':'application/json'},credentials:'same-origin',...opts,
     body:opts.body?JSON.stringify(opts.body):undefined});
   const d=await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(d.error||('Error '+r.status));
+  if(!r.ok){ const err=new Error(d.error||('Error '+r.status)); err.upgrade=!!d.upgrade; throw err; }
   return d;
 }
 const fmtDay=iso=>{const d=new Date(iso+'T12:00');return{dow:d.toLocaleDateString(undefined,{weekday:'short'}),md:d.toLocaleDateString(undefined,{month:'short',day:'numeric'})}};
@@ -598,8 +598,10 @@ async function sendSupport(){
     closeModal();toast(d.message);}catch(e){toast(e.message)}
 }
 async function decide(id,approve){
-  try{await api('/api/admin/approve',{method:'POST',body:{user_id:id,approve}});
-    $('ap'+id).remove();toast(approve?'Approved — they can log in and use the scheduler now.':'Rejected.');}catch(e){toast(e.message)}
+  try{const d=await api('/api/admin/approve',{method:'POST',body:{user_id:id,approve}});
+    $('ap'+id).remove();
+    toast(approve?(d&&d.emailed?'Approved — we emailed them a link to sign in.':'Approved — they can log in now (no email sent; email is not configured).'):'Rejected.');
+  }catch(e){ e.upgrade?showBlocked(e.message):toast(e.message); }
 }
 async function saveSettings(){
   try{await api('/api/admin/settings',{method:'PUT',body:{window_days:+$('set_w').value,threshold:+$('set_t').value,
@@ -680,10 +682,29 @@ async function removeSelected(role){
 }
 
 /* ---------- add people: one · a list · invites ---------- */
-let PPL={role:'student',mode:'one'};
-function addPeople(role,mode){
-  PPL={role:role||'student',mode:mode||'one'};
+let PPL={role:'student',mode:'one',usage:null};
+async function addPeople(role,mode){
+  PPL={role:role||'student',mode:mode||'one',usage:null};
+  try{ const o=await api('/api/admin/overview'); PPL.usage=o.usage; }catch(_){}
   drawAddPeople();
+}
+function slotsLine(){
+  const u=PPL.usage; if(!u||!u.limits) return '';
+  const isStu=PPL.role==='student';
+  const used=isStu?u.students:u.teachers, max=isStu?u.limits.students:u.limits.teachers;
+  const left=Math.max(0,max-used);
+  if(left===0) return `<div class="banner" style="background:var(--miss-bg);border-color:#efb9b9;color:#7a1f1f;margin-bottom:12px">
+    <div><b>You've used all ${max} ${isStu?'student':'teacher'} places on the free plan.</b>
+    Nobody new can be added — and no invite email will go out — until you upgrade.
+    <div style="margin-top:8px"><button class="btn sm" onclick="closeModal();showUpgrade()">Upgrade to Unlimited</button></div></div></div>`;
+  const tight=left<=1;
+  return `<div class="banner" style="${tight?'background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06':''};margin-bottom:12px">
+    <div><b>${used} of ${max} ${isStu?'student':'teacher'} places used</b> — ${left} left on the free plan.
+    ${tight?' Adding more than that needs an upgrade.':''}</div></div>`;
+}
+function slotsFull(){
+  const u=PPL.usage; if(!u||!u.limits) return false;
+  return PPL.role==='student' ? u.students>=u.limits.students : u.teachers>=u.limits.teachers;
 }
 function drawAddPeople(){
   const isStu=PPL.role==='student', who=isStu?'student':'teacher', WHO=isStu?'Students':'Teachers';
@@ -719,9 +740,10 @@ function drawAddPeople(){
   openModal(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
     <h3 class="sec" style="margin:0">Add ${WHO}</h3>
     <button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeModal()">✕</button></div>
-    <div style="display:flex;gap:6px;margin:10px 0 14px;flex-wrap:wrap">
+    ${slotsLine()}
+    ${slotsFull()?'':`<div style="display:flex;gap:6px;margin:10px 0 14px;flex-wrap:wrap">
       ${tab('one','👤 One at a time')}${tab('list','📋 Paste or upload a list')}${tab('invite','✉️ Invite by email')}</div>
-    ${body}
+    ${body}`}
     <p class="note" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
       Anyone you add here is <b>already approved</b> — they skip the approval queue.</p>`);
 }
@@ -749,13 +771,24 @@ async function previewRoster(){
 async function submitOne(){
   const body={role:PPL.role,name:$('ap_name').value,email:$('ap_email').value,
     grade:$('ap_grade')?$('ap_grade').value:'',student_id:$('ap_sid')?$('ap_sid').value:''};
+  if(!body.email) return toast('An email address is required — that is where the invite goes.');
   try{
     const d=await api('/api/admin/people',{method:'POST',body});
     closeModal();
-    if(d.invited) toast(`${d.person.name} added — an invite to set their password is on the way.`);
+    if(d.invited) toast(`${d.person.name} added — invite emailed to ${d.person.email}.`);
     else showCredentials([{name:d.person.name,email:d.person.email,temp:d.temp}],d.mailError);
     renderAdmin();
-  }catch(e){toast(e.message)}
+  }catch(e){ e.upgrade?showBlocked(e.message):toast(e.message); }
+}
+/* a plan limit is a decision point, not a passing message */
+function showBlocked(msg){
+  openModal(`<h3 class="sec">Nobody was added</h3>
+    <div class="banner" style="background:var(--miss-bg);border-color:#efb9b9;color:#7a1f1f;margin-bottom:12px">
+      <div><b>${esc(msg)}</b><br>Because the account was not created, <b>no invite email was sent</b>.</div></div>
+    <p class="note" style="margin-bottom:12px">Free plan: 3 classes/programs, 3 teachers, 10 students.
+    Upgrading lifts all three immediately — everyone you add after that is invited as normal.</p>
+    <button class="btn" onclick="closeModal();showUpgrade()">Upgrade to Unlimited</button>
+    <button class="btn grey" style="margin-left:8px" onclick="closeModal()">Not now</button>`);
 }
 async function submitList(){
   const text=$('ap_text').value;
@@ -770,7 +803,7 @@ async function submitList(){
     else toast(m+(d.limitNote?' · '+d.limitNote:''));
     if(d.skipped.length&&!d.credentials.length) setTimeout(()=>showImportReport(d),600);
     renderAdmin();
-  }catch(e){toast(e.message)}
+  }catch(e){ e.upgrade?showBlocked(e.message):toast(e.message); }
 }
 async function submitInvites(){
   const raw=$('ap_emails').value.split(/[\s,;]+/).filter(Boolean);
@@ -781,7 +814,7 @@ async function submitInvites(){
     if(d.credentials.length) showCredentials(d.credentials,d.mailError,d);
     else { toast(`${d.invited} invite${d.invited===1?'':'s'} sent.`); if(d.skipped.length) setTimeout(()=>showImportReport(d),600); }
     renderAdmin();
-  }catch(e){toast(e.message)}
+  }catch(e){ e.upgrade?showBlocked(e.message):toast(e.message); }
 }
 function showImportReport(d){
   openModal(`<h3 class="sec">Import report</h3>

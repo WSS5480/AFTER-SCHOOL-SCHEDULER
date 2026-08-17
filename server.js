@@ -658,7 +658,7 @@ app.get('/api/admin/pending', ...adm, (req, res) => {
     "SELECT id,role,name,email,grade,student_id,id_photo,created FROM users WHERE school_id=? AND status='pending' ORDER BY created")
     .all(req.user.school_id));
 });
-app.post('/api/admin/approve', ...adm, (req, res) => {
+app.post('/api/admin/approve', ...adm, async (req, res) => {
   const { user_id, approve } = req.body || {};
   const u = q.user.get(user_id);
   if (!u || u.school_id !== req.user.school_id) return res.status(404).json({ error: 'User not found.' });
@@ -667,7 +667,22 @@ app.post('/api/admin/approve', ...adm, (req, res) => {
     if (block) return res.status(403).json({ error: block, upgrade: true });
   }
   db.prepare('UPDATE users SET status=? WHERE id=?').run(approve ? 'approved' : 'rejected', user_id);
-  res.json({ ok: true });
+
+  /* tell them — being approved in silence is indistinguishable from being ignored */
+  let emailed = false;
+  if (approve && emailEnabled()) {
+    const school = q.school.get(req.user.school_id);
+    const link = appBase(req) + (school && school.slug ? '/' + school.slug : '/');
+    try {
+      await sendEmail(u.email, `You're approved at ${school ? school.name : 'your school'}`,
+        `<p>Hi ${u.name},</p>
+         <p>Your account at <b>${school ? school.name : 'your school'}</b> has been approved${u.role === 'teacher' ? ' — your classes are ready for you' : ' — you can start reserving classes and afterschool programs'}.</p>
+         <p><a href="${link}">Open ${school ? school.name : 'the scheduler'}</a></p>
+         <p style="color:#667;font-size:12px">Sign in with the email and password you chose when you signed up.<br>${link}</p>`);
+      emailed = true;
+    } catch (e) { console.error('approval email failed for', u.email, '—', e.message); }
+  }
+  res.json({ ok: true, emailed });
 });
 
 app.get('/api/admin/users', ...adm, (req, res) => {
