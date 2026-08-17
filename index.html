@@ -264,6 +264,9 @@ async function renderLanding(){
       <div class="meta">${daysLabel(p.days)} · ${t12(p.time_start)}–${t12(p.time_end)}<br>
       ${esc(p.date_start)} → ${esc(p.date_end)} · ${esc(p.room)}${p.teacher?' · '+esc(p.teacher):''}</div></div>`).join('')||'<p class="note">No programs yet.</p>'}
     </div></div>
+  ${PUB.school.slug==='demo'?`<div class="banner" style="background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06">
+    <div><b>This is the practice school.</b> Nothing here is real — explore freely.
+    <div style="margin-top:8px"><button class="btn sm" onclick="showTestLogins()">🧪 Show test logins</button></div></div></div>`:''}
   <p class="note">New here? <b>Sign Up</b> — an administrator approves your account before you can reserve or teach.
   &nbsp;·&nbsp; <a href="#" onclick="showGuide();return false" style="color:var(--brand);font-weight:700">❓ How the app works</a></p>`;
   if(location.search.includes('welcome=1')){history.replaceState({},'','/'+SLUG);
@@ -276,7 +279,8 @@ function showLogin(){
   <div class="field"><label>Email</label><input id="li_email" type="email" autocomplete="username"></div>
   <div class="field"><label>Password</label><input id="li_pass" type="password" autocomplete="current-password"></div>
   <button class="btn" onclick="doLogin()">Log in</button>
-  <p class="note" style="margin-top:10px"><a href="#" onclick="showForgot();return false" style="color:var(--brand);font-weight:700">Forgot password?</a></p>`);
+  <p class="note" style="margin-top:10px"><a href="#" onclick="showForgot();return false" style="color:var(--brand);font-weight:700">Forgot password?</a>
+  ${PUB&&PUB.school&&PUB.school.slug==='demo'?' &nbsp;·&nbsp; <a href="#" onclick="showTestLogins();return false" style="color:var(--brand);font-weight:700">🧪 Test logins</a>':''}</p>`);
 }
 async function doLogin(){
   try{await api('/api/login',{method:'POST',body:{email:$('li_email').value,password:$('li_pass').value}});
@@ -493,9 +497,14 @@ let atab='dash';
 async function renderAdmin(){
   app.innerHTML=`
   <div class="apphead"><div class="who">Admin Console<small>${esc(ME.school.name)}</small></div>
-    <button class="btn sm ghost" onclick="showSupport()">🛟 Contact support</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${ME.school.slug==='demo'?'<button class="btn sm" onclick="showTestLogins()">🧪 Test logins</button>':''}
+      <button class="btn sm ghost" onclick="showSupport()">🛟 Contact support</button></div></div>
+  ${ME.school.slug==='demo'?`<div class="banner" style="background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06">
+    <div><b>Practice school — unlimited and safe to break.</b>
+    Use <b>🧪 Test logins</b> above to sign in as a student or teacher, and <b>🎓 Getting started</b> for the five-step walkthrough.</div></div>`:''}
   <div class="atabs">
-    ${[['dash','📊 Dashboard'],['appr','✅ Approvals'],['data','🗂 Admin'],['brand','🎨 Branding'],['set','⚙️ Settings']]
+    ${[['dash','📊 Dashboard'],['start','🎓 Getting started'],['appr','✅ Approvals'],['data','🗂 Admin'],['brand','🎨 Branding'],['set','⚙️ Settings']]
       .map(([k,l])=>`<button class="${atab===k?'on':''}" onclick="atab='${k}';renderAdmin()">${l}</button>`).join('')}
   </div><div id="apane"><p class="note">Loading…</p></div>`;
   const pane=$('apane');
@@ -542,6 +551,7 @@ async function renderAdmin(){
       ||'<div class="card"><p class="note">No pending accounts — all caught up. 🎉</p></div>';
     if(rows.some(r=>r.role==='teacher')) pane.innerHTML+='<p class="note">Tip: after approving a teacher, assign them to programs in Admin → Programs.</p>';
   }
+  if(atab==='start') renderGettingStarted(pane);
   if(atab==='data') renderData(pane);
   if(atab==='brand') renderBrand(pane);
   if(atab==='set'){
@@ -597,6 +607,87 @@ async function sendSupport(){
   try{const d=await api('/api/support',{method:'POST',body:{message:$('sup_msg').value}});
     closeModal();toast(d.message);}catch(e){toast(e.message)}
 }
+const TEST_LOGINS=[
+  {role:'Student',email:'student@demo.com',pw:'learn123',what:'Reserve a class, join a waitlist, watch your attendance score.'},
+  {role:'Teacher',email:'teacher@demo.com',pw:'learn123',what:'Open a session, see the roster, mark everyone present or absent.'},
+  {role:'Admin',email:'admin@demo.com',pw:'learn123',what:'Add programs and people, approve accounts, brand the page.'},
+];
+function showTestLogins(){
+  openModal(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h3 class="sec" style="margin:0">🧪 Test logins</h3>
+    <button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeModal()">✕</button></div>
+  <p class="note" style="margin-bottom:12px">Practice accounts for the demo school — all three use the same password.
+  Open a <b>private window</b> to sign in as one of these while staying admin here.</p>
+  ${TEST_LOGINS.map(t=>`<div class="hrow" style="align-items:flex-start;margin-bottom:8px">
+    <div><b>${t.role}</b>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;margin-top:2px">${t.email}</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">${t.pw}</div>
+      <div class="note" style="margin-top:3px">${t.what}</div></div>
+    <button class="btn sm grey" onclick="navigator.clipboard.writeText('${t.email}');toast('${t.role} email copied')">Copy</button>
+  </div>`).join('')}
+  <div class="banner" style="margin:12px 0 0"><div><b>Try this order.</b>
+    Sign in as the student and reserve a class → sign in as the teacher and mark them present →
+    come back as admin and watch the attendance score change. That is the whole app in about a minute.</div></div>
+  <button class="btn" style="margin-top:12px" onclick="closeModal()">Got it</button>`);
+}
+
+async function renderGettingStarted(pane){
+  pane.innerHTML='<p class="note">Loading…</p>';
+  let d; try{ d=await api('/api/admin/gettingstarted'); }catch(e){ pane.innerHTML='<p class="note">'+esc(e.message)+'</p>'; return; }
+  const c=d.counts;
+  const step=(n,done,title,body)=>`<div class="hrow" style="align-items:flex-start;margin-bottom:8px">
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <div style="width:26px;height:26px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+        font-size:13px;font-weight:800;background:${done?'var(--open-bg)':'var(--brand-soft)'};color:${done?'var(--open)':'var(--brand)'}">${done?'✓':n}</div>
+      <div><b style="font-size:13.5px">${title}</b><div class="note" style="margin-top:2px">${body}</div></div></div></div>`;
+  pane.innerHTML=`
+  ${d.isDemo?`<div class="banner" style="background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06">
+    <div><b>This is the practice school.</b> Everything here is unlimited and safe to break —
+    add, remove, book and cancel as much as you like. Real schools start on the free plan.</div></div>`:''}
+
+  <div class="card"><h3 class="sec">Five steps to a working school</h3>
+    ${step(1,c.programs>0,'Create your classes and programs',
+      'Admin tab → <b>＋ Add program</b>. Pick class or afterschool, the days and times, room, and how many can attend.'+(c.programs?` <b style="color:var(--open)">${c.programs} created</b>`:''))}
+    ${step(2,c.teachers>0,'Add your teachers',
+      'Admin tab → <b>＋ Add teachers</b>. Add one, paste a list, or invite by email. Then assign each to a program.'+(c.teachers?` <b style="color:var(--open)">${c.teachers} added</b>`:''))}
+    ${step(3,c.students>0,'Add your students',
+      'Admin tab → <b>＋ Add students</b>. Same three ways. Or send them your school link and approve them as they arrive.'+(c.students?` <b style="color:var(--open)">${c.students} added</b>`:''))}
+    ${step(4,c.reservations>0,'Let a student reserve a spot',
+      'They sign in, see this week and next, and tap a green session. Full ones become a waitlist. Overlapping times are blocked automatically.'+(c.reservations?` <b style="color:var(--open)">${c.reservations} reserved</b>`:''))}
+    ${step(5,c.attendance>0,'Take attendance',
+      'The teacher opens the session on the day and marks everyone present or absent. That feeds each student\'s attendance score.'+(c.attendance?` <b style="color:var(--open)">${c.attendance} recorded</b>`:''))}
+  </div>
+
+  <div class="card"><h3 class="sec">Your school link</h3>
+    <p class="note" style="margin-bottom:8px">Share this with students and teachers. It is the only address they need.</p>
+    <div class="hrow"><b style="word-break:break-all">${esc(d.link)}</b>
+      <button class="btn sm" onclick="navigator.clipboard.writeText('${esc(d.link)}');toast('Link copied')">Copy</button></div>
+  </div>
+
+  ${d.accounts.length?`<div class="card"><h3 class="sec">🧪 Practice logins</h3>
+    <p class="note" style="margin-bottom:10px">Sign in as each role to see the app through their eyes. Open a private window so you can
+    stay signed in as admin here at the same time.</p>
+    <div class="tbl-wrap"><table><tr><th>Role</th><th>Email</th><th>Password</th><th></th></tr>
+    ${d.accounts.map(a=>`<tr><td style="text-transform:capitalize">${esc(a.role)}</td>
+      <td style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">${esc(a.email)}</td>
+      <td style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">${esc(a.password)}</td>
+      <td><button class="btn sm grey" onclick="navigator.clipboard.writeText('${esc(a.email)}');toast('Copied')">Copy</button></td></tr>`).join('')}
+    </table></div>
+    <p class="note" style="margin-top:8px">Try this order: reserve a class as the student → mark them present as the teacher →
+    come back here and watch their attendance score move.</p>
+  </div>`:''}
+
+  <div class="card"><h3 class="sec">Good to know</h3>
+    <ul style="margin:0;padding-left:20px">
+      <li class="note" style="margin-bottom:5px"><b>Anyone you add is already approved.</b> People who sign up on their own wait in <b>Approvals</b>.</li>
+      <li class="note" style="margin-bottom:5px"><b>Green means open, grey means full.</b> Full sessions still take waitlists, and cancellations promote the next student automatically.</li>
+      <li class="note" style="margin-bottom:5px"><b>Attendance drives everything.</b> Below the threshold in Settings, a student is limited to waitlists until it recovers.</li>
+      <li class="note" style="margin-bottom:5px"><b>Booking window</b> — students see this week and next by default. Change it in Settings.</li>
+      <li class="note"><b>Stuck?</b> Use <b>Contact support</b> at the top of this page — it reaches us directly.</li>
+    </ul>
+  </div>`;
+}
+
 async function decide(id,approve){
   try{const d=await api('/api/admin/approve',{method:'POST',body:{user_id:id,approve}});
     $('ap'+id).remove();

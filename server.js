@@ -105,7 +105,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS redeemed_codes(
 );`);
 
 /* ---------------- plans ---------------- */
-const FREE_LIMITS = { programs: 3, teachers: 3, students: 10 };
+/* Free-tier ceilings. Tune per instance with FREE_PROGRAMS / FREE_TEACHERS /
+   FREE_STUDENTS env vars — no code change needed. Set any to 0 for unlimited.   */
+const FREE_LIMITS = {
+  programs: Number(process.env.FREE_PROGRAMS || 3),
+  teachers: Number(process.env.FREE_TEACHERS || 3),
+  students: Number(process.env.FREE_STUDENTS || 10),
+};
 const UPGRADE_CODE = process.env.UPGRADE_CODE || 'SCHOOL-PRO-2026';
 const CODE_SECRET = process.env.CODE_SECRET || 'scheduler-trial-secret';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@demo.school';
@@ -205,11 +211,11 @@ function planBlocked(schoolId, kind, verb) {
   const u = planUsage(schoolId);
   if (u.plan !== 'free') return null;
   const v = verb || 'add';
-  if (kind === 'programs' && u.programs >= FREE_LIMITS.programs)
+  if (kind === 'programs' && FREE_LIMITS.programs > 0 && u.programs >= FREE_LIMITS.programs)
     return `Free plan limit reached (${FREE_LIMITS.programs} classes/programs). Upgrade to ${v} more.`;
-  if (kind === 'teachers' && u.teachers >= FREE_LIMITS.teachers)
+  if (kind === 'teachers' && FREE_LIMITS.teachers > 0 && u.teachers >= FREE_LIMITS.teachers)
     return `Free plan limit reached (${FREE_LIMITS.teachers} teachers). Upgrade to ${v} more.`;
-  if (kind === 'students' && u.students >= FREE_LIMITS.students)
+  if (kind === 'students' && FREE_LIMITS.students > 0 && u.students >= FREE_LIMITS.students)
     return `Free plan limit reached (${FREE_LIMITS.students} students). Upgrade to ${v} more.`;
   return null;
 }
@@ -242,6 +248,37 @@ const STRIPE_PRICE = process.env.STRIPE_PRICE_ID || '';
 const STRIPE_WH = process.env.STRIPE_WEBHOOK_SECRET || '';
 let stripe = null;
 if (STRIPE_KEY) { try { stripe = require('stripe')(STRIPE_KEY); } catch (e) { console.error('stripe init failed:', e.message); } }
+
+/* ---------------- demo school (for learning & testing) --------------------
+   Runs on every boot, creates only what's missing, and never touches a real
+   school. Unlimited plan so nobody hits a wall while learning the app.        */
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'learn123';
+const DEMO_ACCOUNTS = [
+  { role: 'admin',   email: 'admin@demo.com',   name: 'Demo Admin' },
+  { role: 'teacher', email: 'teacher@demo.com', name: 'Demo Teacher' },
+  { role: 'student', email: 'student@demo.com', name: 'Demo Student', grade: '5', student_id: 'S-0001' },
+];
+function ensureDemo() {
+  if (String(process.env.DEMO_SCHOOL || 'on') === 'off') return null;
+  let school = db.prepare("SELECT * FROM schools WHERE slug='demo'").get();
+  if (!school) {
+    const r = db.prepare("INSERT INTO schools(name,subtitle,slug,plan,created) VALUES(?,?,?,?,datetime('now'))")
+      .run('Demo Elementary', 'Try everything here — nothing you do affects a real school', 'demo', 'pro');
+    db.prepare('INSERT INTO settings(school_id) VALUES(?)').run(r.lastInsertRowid);
+    school = db.prepare("SELECT * FROM schools WHERE slug='demo'").get();
+  }
+  /* always unlimited — a demo that hits a paywall teaches the wrong lesson */
+  db.prepare("UPDATE schools SET plan='pro', plan_expires='' WHERE id=?").run(school.id);
+  const hash = bcrypt.hashSync(DEMO_PASSWORD, 10);
+  for (const a of DEMO_ACCOUNTS) {
+    if (!q.userByEmail.get(a.email)) {
+      db.prepare(`INSERT INTO users(school_id,role,name,email,pass_hash,grade,student_id,status)
+        VALUES(?,?,?,?,?,?,?, 'approved')`)
+        .run(school.id, a.role, a.name, a.email, hash, a.grade || '', a.student_id || '');
+    }
+  }
+  return school;
+}
 
 /* ---------------- helpers ---------------- */
 const app = express();
@@ -284,6 +321,9 @@ const q = {
   waitCount: db.prepare("SELECT COUNT(*) c FROM reservations WHERE program_id=? AND date=? AND status='waitlist'"),
   myRes: db.prepare("SELECT * FROM reservations WHERE student_id=? AND date=? AND status IN ('reserved','waitlist')"),
 };
+
+/* demo school needs the query helpers above, so it runs here */
+try { ensureDemo(); } catch (e) { console.error('demo setup:', e.message); }
 
 function ownerAuth(req, res, next) {
   try {
@@ -940,6 +980,28 @@ app.delete('/api/admin/programs/:id', ...adm, (req, res) => {
   db.prepare('DELETE FROM programs WHERE id=?').run(p.id);
   db.prepare('DELETE FROM reservations WHERE program_id=?').run(p.id);
   res.json({ ok: true });
+});
+
+app.get('/api/admin/gettingstarted', ...adm, (req, res) => {
+  const school = q.school.get(req.user.school_id);
+  const isDemo = school && school.slug === 'demo';
+  const base = appBase(req);
+  res.json({
+    school: school ? school.name : '', slug: school ? school.slug : '',
+    link: base + '/' + (school ? school.slug : ''),
+    isDemo,
+    /* test logins are only meaningful — and only shown — on the demo school */
+    accounts: isDemo ? DEMO_ACCOUNTS.map(a => ({ role: a.role, email: a.email, password: DEMO_PASSWORD })) : [],
+    counts: {
+      programs: db.prepare('SELECT COUNT(*) c FROM programs WHERE school_id=?').get(req.user.school_id).c,
+      students: db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND role='student' AND status='approved'").get(req.user.school_id).c,
+      teachers: db.prepare("SELECT COUNT(*) c FROM users WHERE school_id=? AND role='teacher' AND status='approved'").get(req.user.school_id).c,
+      reservations: db.prepare(`SELECT COUNT(*) c FROM reservations r JOIN programs p ON p.id=r.program_id
+        WHERE p.school_id=? AND r.status='reserved'`).get(req.user.school_id).c,
+      attendance: db.prepare(`SELECT COUNT(*) c FROM reservations r JOIN programs p ON p.id=r.program_id
+        WHERE p.school_id=? AND r.attended IS NOT NULL`).get(req.user.school_id).c,
+    },
+  });
 });
 
 app.get('/api/admin/settings', ...adm, (req, res) => res.json(q.settings.get(req.user.school_id)));
