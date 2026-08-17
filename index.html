@@ -180,6 +180,13 @@ async function boot(){ /* returns a promise so ?reset= can wait for it */
     return renderOwnerLogin();
   }
   try{ ME=await api('/api/me'); }catch{ ME=null; }
+  if(ME && !SLUG){
+    /* signed in and sitting on the storefront URL — show where you actually are */
+    const back=ME.school&&ME.school.slug?('/'+ME.school.slug):'/';
+    if(location.pathname==='/'&&!location.search.includes('register')){
+      history.replaceState({},'',back);
+    }
+  }
   if(!ME){
     if(SLUG && SLUG!=='mockup'){
       PUB=await api('/api/slug/'+SLUG).catch(()=>null);
@@ -229,6 +236,10 @@ async function exitSandbox(){
 /* ---------- storefront (root, no school selected) ---------- */
 function renderStorefront(){
   $('hdr').style.display='none';
+  if(location.search.includes('register=1')){
+    history.replaceState({},'','/');
+    setTimeout(showRegisterSchool,350);
+  }
   app.innerHTML=`
   <div style="text-align:center;padding:34px 10px 22px">
     <div style="font-size:52px">🗓️</div>
@@ -266,7 +277,12 @@ async function doRegisterSchool(){
     location.href='/'+d.slug+'?welcome=1';
   }catch(e){toast(e.message)}
 }
-async function logout(){await api('/api/logout',{method:'POST'});location.reload()}
+async function logout(){await api('/api/logout',{method:'POST'});location.href='/'}
+/* leaving the practice school to set up a real one */
+async function registerRealSchool(){
+  await api('/api/logout',{method:'POST'}).catch(()=>{});
+  location.href='/?register=1';
+}
 
 /* ---------- per-school landing (/<slug>) ---------- */
 async function renderLanding(){
@@ -546,9 +562,12 @@ async function renderAdmin(){
     <div><b>Want to try something without risk?</b> Practice mode drops you into a sandbox school with sample
     data — add, book, cancel, break whatever you like. Your real school is untouched, and you can come straight back.
     <div style="margin-top:8px"><button class="btn sm" onclick="enterSandbox()">🧪 Try it live in the sandbox</button></div></div></div>`:''}
-  ${ME.school.slug==='demo'?`<div class="banner" style="background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06">
+  ${ME.school.slug==='demo'&&!ME.sandbox?`<div class="banner" style="background:var(--wait-bg);border-color:var(--wait-line);color:#6b4a06">
     <div><b>Practice school — unlimited and safe to break.</b>
-    Use <b>🧪 Test logins</b> above to sign in as a student or teacher, and <b>🎓 Getting started</b> for the five-step walkthrough.</div></div>`:''}
+    Use <b>🧪 Test logins</b> above to sign in as a student or teacher, and <b>🎓 Getting started</b> for the five-step walkthrough.
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" onclick="registerRealSchool()">🏫 Register my real school</button>
+      <button class="btn sm grey" onclick="logout()">Sign out</button></div></div></div>`:''}
   <div class="atabs">
     ${[['dash','📊 Dashboard'],['start','🎓 Getting started'],['appr','✅ Approvals'],['data','🗂 Admin'],['brand','🎨 Branding'],['set','⚙️ Settings']]
       .map(([k,l])=>`<button class="${atab===k?'on':''}" onclick="atab='${k}';renderAdmin()">${l}</button>`).join('')}
