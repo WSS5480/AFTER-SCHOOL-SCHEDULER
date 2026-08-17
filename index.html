@@ -942,7 +942,8 @@ function renderOwner(ov){
     <b style="font-size:14px">📧 Email service</b><span id="em_status" class="pill full">checking…</span></div>
     <p class="note" style="margin:6px 0 8px">Sends password-reset links. Configure with GMAIL_USER / GMAIL_APP_PASSWORD (or EMAIL_USER / EMAIL_PASSWORD) env vars in Render.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="em_to" placeholder="send test to…" style="flex:1;min-width:180px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px">
-    <button class="btn sm" onclick="testEmail()">Send test</button></div></div>
+    <button class="btn sm" onclick="testEmail()">Send test</button></div>
+    <div id="em_log"></div></div>
   <div class="card"><b style="font-size:14px">🔑 Trial code generator</b>
     <p class="note" style="margin:4px 0 10px">Mint single-use codes that unlock the full Unlimited plan for a set time, then auto-revert the school to Free. Hand one to a school to start their trial.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
@@ -1025,6 +1026,17 @@ async function drawOwnerSetup(){
 async function loadEmailStatus(){
   const el=$('em_status'); if(!el) return;
   const s=await api('/api/owner/emailstatus').catch(()=>({enabled:false}));
+  const box=$('em_log');
+  if(box){
+    box.innerHTML = (s.lastError?`<div class="banner" style="background:var(--miss-bg);border-color:#efb9b9;color:#7a1f1f;margin:8px 0"><div><b>Last send failed:</b> ${esc(s.lastError)}</div></div>`:'')
+      + `<p class="note" style="margin:6px 0">Last 24h: <b style="color:var(--open)">${s.sent24h||0} sent</b>${s.failed24h?` · <b style="color:var(--miss)">${s.failed24h} failed</b>`:''}</p>`
+      + ((s.log&&s.log.length)?`<div class="tbl-wrap" style="max-height:220px;overflow:auto"><table>
+          <tr><th>When</th><th>To</th><th>Result</th></tr>
+          ${s.log.map(l=>`<tr><td class="note">${esc((l.created||'').slice(5,16))}</td>
+            <td style="font-size:12px">${esc(l.recipient)}</td>
+            <td>${l.ok?'<span class="pill open">sent</span>':`<span class="pill wait" title="${esc(l.error)}">failed</span> <span class="note">${esc((l.error||'').slice(0,40))}</span>`}</td></tr>`).join('')}
+        </table></div>`:'<p class="note">No emails attempted yet.</p>');
+  }
   el.className='pill '+(s.enabled?'open':'wait');
   el.textContent=s.enabled?('✔ on via '+s.via+' ('+s.from+')'):'⚠ not configured';
 }

@@ -83,6 +83,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS support_messages(
   status TEXT DEFAULT 'open', created TEXT DEFAULT (datetime('now'))
 );`);
 db.exec("UPDATE schools SET created=datetime('now') WHERE created=''");
+db.exec(`CREATE TABLE IF NOT EXISTS email_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, recipient TEXT, subject TEXT,
+  ok INTEGER DEFAULT 0, error TEXT DEFAULT '', ms INTEGER DEFAULT 0,
+  created TEXT DEFAULT (datetime('now'))
+);`);
 
 const RESERVED_SLUGS = ['owner', 'office', 'admin', 'api', 'mockup', 'demo-x', 'login', 'signup', 'static', 'assets'];
 function slugify(name) {
@@ -116,10 +121,33 @@ if (GMAIL_USER && GMAIL_APP_PASSWORD) {
   try {
     mailer = require('nodemailer').createTransport({
       service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000,
     });
+    mailer.verify()
+      .then(() => console.log('email: ready as', GMAIL_USER))
+      .catch(e => { LAST_EMAIL_ERROR = e.message; console.error('email: NOT working —', e.message); });
   } catch (e) { console.error('gmail init failed:', e.message); }
 }
+let LAST_EMAIL_ERROR = '';
+const EMAIL_TIMEOUT_MS = 20000;
 async function sendEmail(to, subject, html) {
+  const started = Date.now();
+  try {
+    await Promise.race([
+      rawSend(to, subject, html),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timed out after 20s')), EMAIL_TIMEOUT_MS)),
+    ]);
+    db.prepare('INSERT INTO email_log(recipient,subject,ok,ms) VALUES(?,?,1,?)')
+      .run(to, subject, Date.now() - started);
+    LAST_EMAIL_ERROR = '';
+  } catch (e) {
+    LAST_EMAIL_ERROR = e.message;
+    db.prepare('INSERT INTO email_log(recipient,subject,ok,error,ms) VALUES(?,?,0,?,?)')
+      .run(to, subject, String(e.message).slice(0, 300), Date.now() - started);
+    throw e;
+  }
+}
+async function rawSend(to, subject, html) {
   if (mailer) {
     await mailer.sendMail({ from: `"School Scheduler" <${GMAIL_USER}>`, to, subject, html });
     return;
@@ -734,12 +762,20 @@ app.post('/api/admin/people/bulk', ...adm, async (req, res) => {
     if (made.skipped) skipped.push(made.skipped); else added.push(made);
   }
   let invited = 0, mailError = '';
-  if (b.invite !== false && emailEnabled() && added.length) {
+  const willEmail = b.invite !== false && emailEnabled() && added.length > 0;
+  if (willEmail) {
+    /* fire these off after we reply — 30 invites must not hold the page hostage */
     const school = q.school.get(req.user.school_id).name;
-    for (const p of added) {
-      try { INVITE_REQ = req; await sendInvite({ ...p, role, school_id: req.user.school_id }, school, req.user.name); invited++; }
-      catch (e) { mailError = e.message; }
-    }
+    const host = req.get('host'), by = req.user.name, sid = req.user.school_id;
+    setImmediate(async () => {
+      for (const p of added) {
+        try {
+          INVITE_REQ = { get: () => host };
+          await sendInvite({ ...p, role, school_id: sid }, school, by);
+        } catch (e) { console.error('invite failed for', p.email, '—', e.message); }
+      }
+    });
+    invited = added.length;   /* queued; the email log records what actually happened */
   }
   res.json({
     ok: true, role, added: added.length, invited, skipped, blockedByPlan,
@@ -1032,7 +1068,15 @@ app.get('/api/owner/setup', ownerAuth, (req, res) => {
 });
 
 app.get('/api/owner/emailstatus', ownerAuth, (_req, res) => {
-  res.json({ enabled: emailEnabled(), via: mailer ? 'gmail' : (RESEND_KEY ? 'resend' : null), from: GMAIL_USER || EMAIL_FROM || null });
+  const log = db.prepare('SELECT * FROM email_log ORDER BY created DESC LIMIT 25').all();
+  res.json({
+    enabled: emailEnabled(), via: mailer ? 'gmail' : (RESEND_KEY ? 'resend' : null),
+    from: GMAIL_USER || EMAIL_FROM || null,
+    lastError: LAST_EMAIL_ERROR || '',
+    sent24h: db.prepare("SELECT COUNT(*) c FROM email_log WHERE ok=1 AND created>=datetime('now','-1 day')").get().c,
+    failed24h: db.prepare("SELECT COUNT(*) c FROM email_log WHERE ok=0 AND created>=datetime('now','-1 day')").get().c,
+    log,
+  });
 });
 app.post('/api/owner/testemail', ownerAuth, async (req, res) => {
   const to = ((req.body || {}).to || '').trim();
