@@ -131,6 +131,17 @@ async function sendEmail(to, subject, html) {
   });
   if (!r.ok) throw new Error('email send failed: ' + (await r.text()).slice(0, 200));
 }
+function appBase(req) {
+  const configured = (process.env.APP_URL || '').replace(/\/+$/, '');
+  if (configured) return configured;
+  const host = req && req.get ? req.get('host') : '';
+  return (host ? 'https://' + host : '');
+}
+function userLink(req, user, query) {
+  const school = user && user.school_id ? q.school.get(user.school_id) : null;
+  const path = school && school.slug && user.role !== 'admin' ? '/' + school.slug : '/';
+  return appBase(req) + path + query;
+}
 function tempPassword() {
   const CH = 'abcdefghjkmnpqrstuvwxyz23456789';
   let s = '';
@@ -206,6 +217,7 @@ if (STRIPE_KEY) { try { stripe = require('stripe')(STRIPE_KEY); } catch (e) { co
 
 /* ---------------- helpers ---------------- */
 const app = express();
+app.set('trust proxy', 1);   // Render terminates TLS — without this, emailed links come out as http://
 
 /* Stripe webhook needs the RAW body, so register it before the JSON parser */
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
@@ -369,11 +381,12 @@ app.post('/api/forgot', async (req, res) => {
   const u = email && q.userByEmail.get(email);
   if (u && emailEnabled()) {
     try {
-      const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
       const token = jwt.sign({ reset: u.id }, SECRET, { expiresIn: '30m' });
+      const link = userLink(req, u, '?reset=' + token);
       await sendEmail(u.email, 'Reset your School Scheduler password',
         `<p>Hi ${u.name},</p><p>Tap the link below to set a new password (valid 30 minutes):</p>
-         <p><a href="${base}/?reset=${token}">Reset my password</a></p>
+         <p><a href="${link}">Reset my password</a></p>
+         <p style="color:#667;font-size:12px">If the button doesn't work, copy this address into your browser:<br>${link}</p>
          <p>If you didn't ask for this, you can ignore this email.</p>`);
       return res.json({ ok: true, sent: true, message: 'Check your email for a reset link (valid 30 minutes).' });
     } catch (e) { console.error(e); /* fall through to manual guidance */ }
@@ -398,7 +411,13 @@ app.post('/api/reset', (req, res) => {
     const u = q.user.get(p.reset);
     if (!u) throw 0;
     db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), u.id);
-    res.json({ ok: true, message: 'Password updated — log in with your new password.' });
+    /* sign them straight in — they just proved they own the mailbox */
+    res.cookie('tok', jwt.sign({ uid: u.id }, SECRET, { expiresIn: '30d' }),
+      { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
+    const school = q.school.get(u.school_id);
+    res.json({ ok: true, signedIn: true, role: u.role, name: u.name,
+      slug: school ? school.slug : null,
+      message: `Password saved — welcome, ${u.name}.` });
   } catch { res.status(400).json({ error: 'That reset link is invalid or expired. Request a new one.' }); }
 });
 
@@ -661,14 +680,17 @@ function createPerson(schoolId, role, row) {
       String(row.grade || '').trim(), role === 'student' ? sid : '');
   return { id: r.lastInsertRowid, name: name || email.split('@')[0], email, temp };
 }
+let INVITE_REQ = null;   // set just before invites so links use the real host
 async function sendInvite(user, schoolName, whoAdded) {
   const token = jwt.sign({ reset: user.id }, SECRET, { expiresIn: '14d' });
-  const base = process.env.APP_URL || '';
+  const link = INVITE_REQ ? userLink(INVITE_REQ, user, '?reset=' + token)
+    : (process.env.APP_URL || '') + '/?reset=' + token;
   await sendEmail(user.email, `You've been added to ${schoolName} on School Scheduler`,
     `<p>Hi ${user.name},</p>
      <p>${whoAdded} added you to <b>${schoolName}</b>${user.role === 'teacher' ? ' as a teacher' : ''}.</p>
      <p>Set your password and you're in — no approval needed:</p>
-     <p><a href="${base}/?reset=${token}">Set my password</a></p>
+     <p><a href="${link}">Set my password</a></p>
+     <p style="color:#667;font-size:12px">If the button doesn't work, copy this address into your browser:<br>${link}</p>
      <p style="color:#667">This link works for 14 days.</p>`);
 }
 
@@ -682,7 +704,8 @@ app.post('/api/admin/people', ...adm, async (req, res) => {
   let invited = false, mailError = '';
   if (b.invite !== false && emailEnabled()) {
     try {
-      await sendInvite({ ...made, role }, q.school.get(req.user.school_id).name, req.user.name);
+      INVITE_REQ = req;
+      await sendInvite({ ...made, role, school_id: req.user.school_id }, q.school.get(req.user.school_id).name, req.user.name);
       invited = true;
     } catch (e) { mailError = e.message; }
   }
@@ -714,7 +737,7 @@ app.post('/api/admin/people/bulk', ...adm, async (req, res) => {
   if (b.invite !== false && emailEnabled() && added.length) {
     const school = q.school.get(req.user.school_id).name;
     for (const p of added) {
-      try { await sendInvite({ ...p, role }, school, req.user.name); invited++; }
+      try { INVITE_REQ = req; await sendInvite({ ...p, role, school_id: req.user.school_id }, school, req.user.name); invited++; }
       catch (e) { mailError = e.message; }
     }
   }

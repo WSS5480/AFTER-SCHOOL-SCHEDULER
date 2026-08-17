@@ -173,7 +173,7 @@ const todayISO=()=>new Date().toISOString().slice(0,10);
 const t12=t=>{let[h,m]=t.split(':').map(Number);const ap=h>=12?'PM':'AM';h=h%12||12;return h+':'+String(m).padStart(2,'0')+ap};
 
 /* ---------- boot ---------- */
-async function boot(){
+async function boot(){ /* returns a promise so ?reset= can wait for it */
   if(SLUG==='owner'||SLUG==='office'){
     const ov=await api('/api/owner/overview').catch(()=>null);
     if(ov) return renderOwner(ov);
@@ -331,13 +331,37 @@ async function doForgot(){
     closeModal();toast(d.message);}catch(e){toast(e.message)}
 }
 function showResetForm(token){
-  openModal(`<h3 class="sec">Set a new password</h3>
-  <div class="field"><label>New password</label><input id="rp_pass" type="password"></div>
-  <button class="btn" onclick="doReset('${token}')">Save new password</button>`);
+  openModal(`<h3 class="sec">Set your password</h3>
+  <p class="note" style="margin-bottom:10px">Pick a password and you're straight in — no approval needed.</p>
+  <div class="field"><label>New password</label><input id="rp_pass" type="password" autocomplete="new-password" placeholder="at least 4 characters"></div>
+  <button class="btn" onclick="doReset('${token}')">Save and sign in</button>`);
+  const f=$('rp_pass');
+  if(f){ f.focus(); f.addEventListener('keydown',function(e){ if(e.key==='Enter') doReset(token); }); }
 }
 async function doReset(token){
-  try{const d=await api('/api/reset',{method:'POST',body:{token,password:$('rp_pass').value}});
-    closeModal();history.replaceState({},'',location.pathname);toast(d.message);showLogin();}catch(e){toast(e.message)}
+  const pw=$('rp_pass').value;
+  if(!pw||pw.length<4) return toast('Pick a password of at least 4 characters.');
+  try{
+    const d=await api('/api/reset',{method:'POST',body:{token,password:pw}});
+    closeModal();
+    /* the server signed them in — send them to where they actually belong */
+    const dest=(d.slug&&d.role!=='admin')?('/'+d.slug):'/';
+    if(location.pathname!==dest){ location.href=dest; return; }
+    history.replaceState({},'',dest);
+    await boot();
+    toast(d.message);
+  }catch(e){
+    /* an expired or reused link should say so plainly, with a way out */
+    openModal(`<h3 class="sec">That link didn't work</h3>
+      <p class="note" style="margin-bottom:12px">${esc(e.message)}</p>
+      <div class="field"><label>Your email</label><input id="rl_email" type="email"></div>
+      <button class="btn" onclick="resendReset()">Email me a new link</button>
+      <button class="btn grey" style="margin-left:8px" onclick="closeModal()">Close</button>`);
+  }
+}
+async function resendReset(){
+  try{const d=await api('/api/forgot',{method:'POST',body:{email:$('rl_email').value}});
+    closeModal();toast(d.message);}catch(e){toast(e.message)}
 }
 function renderPending(){
   app.innerHTML=`<div class="card center" style="text-align:center;margin-top:40px">
@@ -1070,8 +1094,7 @@ function showGuide(){
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 if(location.search.includes('upgraded=1')){history.replaceState({},'','/');setTimeout(()=>toast('🎉 Subscription active — your school is now on the Unlimited plan.'),800);}
 const _rt=new URLSearchParams(location.search).get('reset');
-if(_rt) setTimeout(()=>showResetForm(_rt),400);
-boot();
+boot().then(()=>{ if(_rt) showResetForm(_rt); }).catch(()=>{ if(_rt) showResetForm(_rt); });
 </script>
 </body>
 </html>
