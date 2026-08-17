@@ -471,7 +471,7 @@ async function renderAdmin(){
   <div class="apphead"><div class="who">Admin Console<small>${esc(ME.school.name)}</small></div>
     <button class="btn sm ghost" onclick="showSupport()">🛟 Contact support</button></div>
   <div class="atabs">
-    ${[['dash','📊 Dashboard'],['appr','✅ Approvals'],['data','🗂 Datasets'],['brand','🎨 Branding'],['set','⚙️ Settings']]
+    ${[['dash','📊 Dashboard'],['appr','✅ Approvals'],['data','🗂 Admin'],['brand','🎨 Branding'],['set','⚙️ Settings']]
       .map(([k,l])=>`<button class="${atab===k?'on':''}" onclick="atab='${k}';renderAdmin()">${l}</button>`).join('')}
   </div><div id="apane"><p class="note">Loading…</p></div>`;
   const pane=$('apane');
@@ -501,7 +501,7 @@ async function renderAdmin(){
       <p class="note" style="margin-top:4px"><b id="shareLink">${location.origin}/${ME.school.slug||''}</b><br>Share it with students and teachers — they sign up there and land in your approval queue.</p></div>
       <button class="btn sm" onclick="navigator.clipboard.writeText($('shareLink').textContent);toast('Link copied!')">Copy link</button></div></div>
     <div class="card"><b style="font-size:14px">Quick links</b><p class="note" style="margin-top:6px">
-      Approve new accounts in <b>Approvals</b> · add classes, students & teachers in <b>Datasets</b> ·
+      Approve new accounts in <b>Approvals</b> · add classes, students & teachers in <b>Admin</b> ·
       set the booking window and attendance threshold in <b>Settings</b> · personalize the public page in <b>Branding</b>.</p></div>`;
   }
   if(atab==='appr'){
@@ -516,7 +516,7 @@ async function renderAdmin(){
       <div><button class="btn sm" onclick="decide(${u.id},true)">Approve</button>
       <button class="btn sm danger" onclick="decide(${u.id},false)">Reject</button></div></div>`).join('')
       ||'<div class="card"><p class="note">No pending accounts — all caught up. 🎉</p></div>';
-    if(rows.some(r=>r.role==='teacher')) pane.innerHTML+='<p class="note">Tip: after approving a teacher, assign them to programs in Datasets → Programs.</p>';
+    if(rows.some(r=>r.role==='teacher')) pane.innerHTML+='<p class="note">Tip: after approving a teacher, assign them to programs in Admin → Programs.</p>';
   }
   if(atab==='data') renderData(pane);
   if(atab==='brand') renderBrand(pane);
@@ -985,7 +985,7 @@ function showGuide(){
   const admin=`<h4>🔑 For administrators</h4>
   <ul>
     <li><b>Approvals</b> — students and teachers create their own accounts, but nothing works until you approve them here.</li>
-    <li><b>Datasets</b> — three lists you own: Programs & Classes (create each one as a "class" or "afterschool program" with days, times, date range, room, capacity, and teacher), Students, and Teachers.</li>
+    <li><b>Admin</b> — three lists you own: Programs & Classes (create each one as a "class" or "afterschool program" with days, times, date range, room, capacity, and teacher), Students, and Teachers.</li>
     <li><b>Branding</b> — rename the school and upload the photos shown on the public landing page (first photo = hero image).</li>
     <li><b>Settings</b> — the booking window (default 14 days), the attendance threshold, what happens below it, and waitlist auto-promotion.</li>
   </ul>`;
