@@ -1203,8 +1203,31 @@ app.get('/api/partner/summary', (req, res) => {
 });
 
 /* ---------------- static ---------------- */
-const PUBLIC_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+const PUBLIC_FILES = ['sw.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 PUBLIC_FILES.forEach(f => app.get('/' + f, (_req, res) => res.sendFile(path.join(__dirname, f))));
+
+/* The manifest is generated per page. Saving /office to the home screen should
+   reopen /office — a fixed start_url sent everyone back to the storefront.     */
+app.get('/manifest.webmanifest', (req, res) => {
+  const raw = String(req.query.start || '/').split('?')[0];
+  const seg = raw.replace(/^\/+|\/+$/g, '').toLowerCase();
+  let start = '/', name = 'School Scheduler', short = 'Scheduler';
+  if (seg === 'office' || seg === 'owner') {
+    start = '/' + seg; name = 'Scheduler Office'; short = 'Office';
+  } else if (seg) {
+    const school = db.prepare('SELECT name, slug FROM schools WHERE slug=?').get(seg);
+    if (school) { start = '/' + school.slug; name = school.name; short = school.name.slice(0, 12); }
+  }
+  res.type('application/manifest+json').json({
+    name, short_name: short, description: 'Classes and afterschool programs.',
+    start_url: start, scope: '/', display: 'standalone',
+    background_color: '#0b1f4b', theme_color: '#151b2c',
+    icons: [
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+    ],
+  });
+});
 app.get('/ui.js', (_req, res) => res.sendFile(path.join(__dirname, 'ui.js')));
 
 /* The page shell. The UI itself lives in ui.js (see build-ui.js) so the app can be

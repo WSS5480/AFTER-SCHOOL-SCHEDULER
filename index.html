@@ -1228,6 +1228,14 @@ function showGuide(){
 }
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+/* tell the manifest which page this is, so "Add to Home Screen" reopens here */
+(function(){
+  var ml=document.querySelector('link[rel=manifest]');
+  if(ml) ml.href='/manifest.webmanifest?start='+encodeURIComponent(location.pathname);
+  var t=document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  var seg=location.pathname.replace(/^\/+|\/+$/g,'').toLowerCase();
+  if(t&&(seg==='office'||seg==='owner')) t.setAttribute('content','Office');
+})();
 if(location.search.includes('upgraded=1')){history.replaceState({},'','/');setTimeout(()=>toast('🎉 Subscription active — your school is now on the Unlimited plan.'),800);}
 const _rt=new URLSearchParams(location.search).get('reset');
 boot().then(()=>{ if(_rt) showResetForm(_rt); }).catch(()=>{ if(_rt) showResetForm(_rt); });
