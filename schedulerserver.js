@@ -1480,6 +1480,62 @@ const sendApp = (_req, res) => {
   central.warm();
   return fs.existsSync(UI_JS) ? res.type('html').send(SHELL) : res.sendFile(path.join(__dirname, 'index.html'));
 };
+/* ------------------------------------------------------------- privacy --- */
+const PRIVACY_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>School Scheduler — Privacy</title>
+<style>body{margin:0;padding:28px 18px;background:#EDF2FB;color:#101822;
+font:16px/1.65 -apple-system,"Segoe UI",Roboto,Arial,sans-serif}main{max-width:660px;margin:0 auto;
+background:#fff;border:1px solid #DBE4F2;border-radius:14px;padding:24px 22px}
+h1{font-size:26px;margin:0 0 4px;color:#0B4FD3}
+h2{font-size:18px;margin:26px 0 6px;color:#101822}
+p,li{margin:8px 0}a{color:#0A3FA8}.d{color:#5A6A80;font-size:14px}</style></head><body><main>
+<h1>School Scheduler Privacy Statement</h1>
+<p class="d">Last updated 31 August 2026</p>
+
+<h2>Each school's data belongs to that school</h2>
+<p>Every school on the Scheduler is separate. Its programs, teachers, students
+and reservations are visible only to accounts at that school, and only after the
+school's own administrator has approved them.</p>
+
+<h2>Students</h2>
+<p>Because many students are minors, this is the part we are most careful with.
+A student sign-up asks for a name, grade, student ID and a photo of the school
+ID. The photo exists for exactly one purpose: so the school's administrator can
+check the person is really their student before approving the account. It is
+shown to that school's administrator and to no one else. Students see programs
+and their own reservations — never other students' details.</p>
+
+<h2>What the platform operator can see</h2>
+<p>The operator's console shows which schools exist, their administrators'
+contact details, their plan, and support messages administrators send. It is
+not a window into a school's student records; those are worked with through the
+school's own screens by the school's own staff.</p>
+
+<h2>What we store</h2>
+<ul>
+<li><b>Accounts:</b> name, email, and a scrambled (hashed) password that cannot
+be read back. The same account works across our connected apps.</li>
+<li><b>School records:</b> the programs, schedules and reservations the school
+creates.</li>
+<li><b>Emails we send:</b> invites and password-reset links go to the address on
+the account, and only for those purposes.</li>
+</ul>
+
+<h2>Cookies and tracking</h2>
+<p>One cookie, used to keep you signed in. No advertising, no trackers, no
+analytics, and no data is ever sold or shared for marketing.</p>
+
+<h2>Your choices</h2>
+<p>Anyone can change their password at any time; a school administrator can
+reset or remove their school's accounts, and removing an account deletes its
+reservations. For questions or deletion requests, contact
+<a href="mailto:steve.smith@buddyrents.com">steve.smith@buddyrents.com</a>.</p>
+
+<p class="d">If this statement changes, the date above changes with it.</p>
+</main></body></html>`;
+app.get('/privacy', (_req, res) => res.type('html').send(PRIVACY_PAGE));
+
 app.get(['/owner', '/office'], sendApp);
 app.get('/', sendApp);
 /* per-school pages: /<slug> serves the app, which reads the slug client-side */
