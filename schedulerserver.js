@@ -120,20 +120,50 @@ const SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
  *   ?  ->  $1, $2 ...        Postgres numbers its placeholders
  *   run() -> lastInsertRowid  by asking for the new id back on the way in
  */
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 const DATABASE_URL = process.env.DATABASE_URL || '';
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is not set — this app now stores its data in Postgres.');
   process.exit(1);
 }
+const SSL = /localhost|127\.0\.0\.1|sslmode=disable/.test(DATABASE_URL)
+  ? false : { rejectUnauthorized: false };
+
+/* This database is shared with the other IntAlsoft apps, and app tables collide:
+ * ServeTrack has a `users` table and so does this one, meaning entirely
+ * different things. Postgres schemas exist for exactly this — each app gets its
+ * own namespace inside the one database, so `users` here and `users` there are
+ * different tables and neither can touch the other.
+ *
+ * search_path is set at connection startup, so every query in this file lands
+ * in this app's namespace without a single table name changing. */
+const DB_SCHEMA = (process.env.DB_SCHEMA || 'scheduler').toLowerCase();
+if (!/^[a-z_][a-z0-9_]*$/.test(DB_SCHEMA)) {
+  console.error(`DB_SCHEMA "${DB_SCHEMA}" is not a valid identifier.`);
+  process.exit(1);
+}
+
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  // Render's managed Postgres requires TLS; a local dev database usually has none.
-  ssl: /localhost|127\.0\.0\.1|sslmode=disable/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
+  ssl: SSL,
   max: 8,
-  idleTimeoutMillis: 30000
+  idleTimeoutMillis: 30000,
+  options: `-c search_path=${DB_SCHEMA}`
 });
 pool.on('error', e => console.error('postgres pool error:', e.message));
+
+/* The schema itself has to exist before any pooled connection can point at it,
+ * so this one runs on its own connection with the default path. */
+async function ensureSchema() {
+  const c = new Client({ connectionString: DATABASE_URL, ssl: SSL });
+  await c.connect();
+  try {
+    await c.query(`CREATE SCHEMA IF NOT EXISTS ${DB_SCHEMA}`);
+    console.log(`Using the "${DB_SCHEMA}" schema in the shared database.`);
+  } finally {
+    await c.end();
+  }
+}
 
 // Tables whose inserts should hand back the new row id.
 const ID_TABLES = new Set(['schools', 'users', 'programs', 'reservations',
@@ -1767,6 +1797,56 @@ async function importFromSqlite() {
   }
 }
 
+/* ------------- tidying up after the collision -------------
+ * A first attempt at this move ran without a schema of its own and left tables
+ * loose in `public`, plus two unused columns on ServeTrack's users table. This
+ * removes them.
+ *
+ * Two safety rails, because this is the only destructive code in the file:
+ *   - it does nothing unless CLEAN_PUBLIC_STRAYS is set to 1, so it is a
+ *     deliberate one-off rather than something that fires on every deploy;
+ *   - it refuses to run unless this app's own schema already holds the data,
+ *     so it can never drop the only copy of anything.
+ * The two columns are safe to drop: they were added by that failed run, they
+ * are unused, and ServeTrack names its columns explicitly in every query.
+ */
+async function cleanPublicStrays() {
+  if (process.env.CLEAN_PUBLIC_STRAYS !== '1') return;
+
+  const mine = await db.prepare('SELECT COUNT(*)::int c FROM schools').get();
+  if (!mine || Number(mine.c) === 0) {
+    console.log('Skipping cleanup: this app has no data of its own yet.');
+    return;
+  }
+
+  const c = new Client({ connectionString: DATABASE_URL, ssl: SSL });
+  await c.connect();
+  try {
+    for (const t of ['redeemed_codes', 'email_log', 'support_messages', 'photos',
+                     'reservations', 'programs', 'settings', 'schools']) {
+      const { rowCount } = await c.query(
+        `SELECT 1 FROM information_schema.tables
+         WHERE table_schema='public' AND table_name=$1`, [t]);
+      if (!rowCount) continue;
+      await c.query(`DROP TABLE public.${t} CASCADE`);
+      console.log(`  dropped stray public.${t}`);
+    }
+    for (const col of ['student_id', 'id_photo']) {
+      const { rowCount } = await c.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='users' AND column_name=$1`, [col]);
+      if (!rowCount) continue;
+      await c.query(`ALTER TABLE public.users DROP COLUMN ${col}`);
+      console.log(`  removed the unused ${col} column from ServeTrack's users table`);
+    }
+    console.log('Cleanup done — you can unset CLEAN_PUBLIC_STRAYS now.');
+  } catch (e) {
+    console.error('Cleanup failed (harmless, the strays are just clutter):', e.message);
+  } finally {
+    await c.end();
+  }
+}
+
 /* ---------------- boot ----------------
  * Nothing may serve a request before the schema exists, so the listener only
  * opens once the database is ready. If that fails, the process exits rather
@@ -1774,6 +1854,7 @@ async function importFromSqlite() {
  * easier to diagnose than one that half works.
  */
 async function boot() {
+  await ensureSchema();
   await migrate();
   /* The import has to come before anything that writes: it only runs when
      Postgres is empty, and seeding a demo school first would make it look
@@ -1782,6 +1863,7 @@ async function boot() {
   await backfillSlugs();
   await seedIfEmpty();
   try { await ensureDemo(); } catch (e) { console.error('demo setup:', e.message); }
+  try { await cleanPublicStrays(); } catch (e) { console.error('cleanup:', e.message); }
 }
 
 boot().then(() => {
