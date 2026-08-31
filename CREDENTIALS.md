@@ -1,7 +1,11 @@
 # School Scheduler — who logs in where
-### Int-AI-lisoft · keep this file private
+
+### IntAlsoft · reference only — no passwords are written in this file
 
 Base URL: `https://after-school-scheduler.onrender.com`
+
+> This file lives in a public repository. Nothing secret goes in it. Every real
+> value lives in **Render → after-school-scheduler → Environment**.
 
 ---
 
@@ -10,17 +14,15 @@ Base URL: `https://after-school-scheduler.onrender.com`
 | | |
 |---|---|
 | **URL** | `/office` **or** `/owner` |
-| **Email** | whatever you set as the `OWNER_EMAIL` env var |
-| **Password** | whatever you set as `OWNER_PASSWORD` |
-| **If never set** | `owner@demo.school` / `owner123` ← change this today |
+| **Email** | the `OWNER_EMAIL` env var |
+| **Password** | the `OWNER_PASSWORD` env var |
 
-This is the Int-AI-lisoft console: every school, alerts, the trial-code generator,
+This is the IntAlsoft console: every school, alerts, the trial-code generator,
 support inbox, email status. Completely separate from any school login — school
 admins get a 401 if they try to reach it.
 
-> **Why your link kept landing on the school page:** `/office` used to have no route,
-> so the server bounced it to the storefront. Fixed — both `/office` and `/owner` now
-> open your console.
+If `OWNER_PASSWORD` is ever unset the app falls back to a built-in default and
+flags it as unsafe on your office health screen. Set it and keep it set.
 
 ---
 
@@ -45,6 +47,7 @@ to send them.
 | **Login** | their own email + password |
 
 Three ways they get an account — all from **Admin** tab in the school's console:
+
 1. Admin adds them one at a time
 2. Admin pastes/uploads a roster list
 3. Admin invites them by email — they set their own password
@@ -53,38 +56,34 @@ Anyone the admin adds is pre-approved. Anyone who self-registers waits in **Appr
 
 ---
 
-## 4 · Demo accounts (seeded automatically — testing only)
+## 4 · Demo school
 
-Live at the demo school `/demo`:
-
-| Role | Email | Password |
-|---|---|---|
-| School admin | `admin@demo.school` | `admin123` |
-| Teacher | `rivera@demo.school` | `teach123` |
-| Student | `maya@demo.school` | `learn123` |
-
-These exist so you can demo the product without touching a real school. They are
-**not** your owner login. Delete them before a real school uses that instance.
+The demo school at `/demo` exists so you can show the product without touching a
+real school. Its logins are seeded by the app itself — read them from your office,
+not from this file, and never reuse them for anything real.
 
 ---
 
 ## 5 · What you hand out vs what stays secret
 
 **Give to a school**
+
 - Their school link (`/their-slug`)
 - An access code, when you're giving a trial — minted in your office → Access codes
 - Nothing else. They make their own passwords.
 
-**Never leave your office**
+**Never leave Render → Environment**
+
 - `OWNER_EMAIL` / `OWNER_PASSWORD` — your console login
 - `CODE_SECRET` — signs access codes; anyone with it can mint free Pro
 - `JWT_SECRET` — signs every login session
 - `UPGRADE_CODE` — the permanent unlock code
 - `EMAIL_USER` / `EMAIL_PASSWORD` — your Gmail + app password
 - `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — money
-- `PARTNER_KEY` — lets Int-AI-lisoft HQ read this app's numbers
+- `PARTNER_KEY` — lets IntAlsoft HQ read this app's numbers
+- `APP_SECRET_SCHEDULER` — how this app proves itself to My Apps
 
-All of these live in **Render → your service → Environment**, never in the code.
+None of these belong in the code or in this file.
 
 ---
 
@@ -95,5 +94,6 @@ All of these live in **Render → your service → Environment**, never in the c
 | Your office | `/office` |
 | Storefront (public) | `/` |
 | Demo school | `/demo` |
+| Privacy statement | `/privacy` |
 | Set env vars | Render → after-school-scheduler → Environment |
 | Repo | github.com/WSS5480/AFTER-SCHOOL-SCHEDULER |
