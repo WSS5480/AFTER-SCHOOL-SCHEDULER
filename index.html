@@ -5,27 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>School Scheduler</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#151b2c">
+<meta name="theme-color" content="#0B4FD3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Scheduler">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root{
-    --ink:#1a2233; --ink2:#5b6478; --ink3:#8b93a7; --surface:#f4f6fa; --card:#fff;
-    --line:#e3e7ef; --brand:#2f4fb0; --brand-soft:#e8edfb;
+    --ink:#101822; --ink2:#5A6A80; --ink3:#8894A6; --surface:#EDF2FB; --card:#fff;
+    --line:#DBE4F2; --brand:#0B4FD3; --brand-soft:#E3ECFD; --accent:#F2660D;
     --open:#15803d; --open-bg:#e5f6ea; --open-line:#9fd8b0;
-    --resv:#1d4ed8; --resv-bg:#e4ecfd; --resv-line:#a9c1f5;
+    --resv:#0A3FA8; --resv-bg:#E3ECFD; --resv-line:#A9C1F5;
     --full:#697083; --full-bg:#eceef3; --full-line:#d4d8e1;
     --wait:#a16207; --wait-bg:#fdf3d7; --wait-line:#e7cd8a;
     --miss:#b91c1c; --miss-bg:#fdeaea;
-    --shadow:0 1px 3px rgba(20,30,60,.08),0 4px 14px rgba(20,30,60,.06);
+    --shadow:0 1px 3px rgba(11,40,90,.08),0 4px 14px rgba(11,40,90,.07);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--surface);color:var(--ink);line-height:1.45;padding-bottom:70px}
   .wrap{max-width:1080px;margin:0 auto;padding:16px 14px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
-  .btn{display:inline-block;border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff}
+  .btn{display:inline-block;border:none;border-radius:999px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff}
+  .btn:active{background:#D9550A}
+  .btn.blue{background:var(--brand)}
   .btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand)}
   .btn.sm{padding:6px 11px;font-size:12.5px;border-radius:7px}
   .btn.grey{background:#eceef3;color:var(--ink2)}
@@ -38,8 +40,8 @@
   .field label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:4px}
   .field input,.field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:15px;font-family:inherit;background:#fff}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:#1a2233;color:#fff;padding:12px 18px;border-radius:10px;font-size:13.5px;z-index:99;max-width:92%;box-shadow:0 6px 24px rgba(0,0,0,.25);display:none}
-  header.app{background:#151b2c;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-  header.app .t{font-weight:800;font-size:16px} header.app .t small{display:block;font-weight:500;font-size:11.5px;color:#9aa4c0}
+  header.app{background:#0B4FD3;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  header.app .t{font-weight:800;font-size:16px} header.app .t small{display:block;font-weight:500;font-size:11.5px;color:#BFD3F7}
   .apphead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin:14px 0 12px}
   .who{font-size:17px;font-weight:800} .who small{display:block;font-weight:600;font-size:12px;color:var(--ink2)}
   .score{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 16px;text-align:center;box-shadow:var(--shadow);min-width:118px}
