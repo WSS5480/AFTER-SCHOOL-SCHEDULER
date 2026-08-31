@@ -1331,6 +1331,27 @@ app.post('/api/owner/gencodes', ownerAuth, (req, res) => {
 
 /* Everything the operator needs to log in, demo, and check the instance is safe.
    Never returns real secrets — only whether each one is still on its default.   */
+/* ------------- one-time export, for the move to Postgres -------------
+ * Reads every table out of the SQLite file this service still holds and hands
+ * it back as one JSON document. Owner login only, because it contains every
+ * account and every student record in every school on this instance.
+ *
+ * This exists for one migration and should be deleted once the move is done.
+ */
+app.get('/api/owner/export', ownerAuth, (req, res) => {
+  const TABLES = ['schools', 'settings', 'users', 'programs', 'reservations',
+                  'photos', 'support_messages', 'email_log', 'redeemed_codes'];
+  const out = { exported_at: new Date().toISOString(), tables: {} };
+  for (const t of TABLES) {
+    try { out.tables[t] = db.prepare(`SELECT * FROM ${t}`).all(); }
+    catch (e) { out.tables[t] = []; }
+  }
+  out.counts = Object.fromEntries(Object.entries(out.tables).map(([k, v]) => [k, v.length]));
+  console.log('Owner exported the database:', JSON.stringify(out.counts));
+  res.setHeader('Content-Disposition', 'attachment; filename="legacy-data.json"');
+  res.type('application/json').send(JSON.stringify(out, null, 2));
+});
+
 app.get('/api/owner/setup', ownerAuth, (req, res) => {
   const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
   const demoSchool = db.prepare("SELECT * FROM schools WHERE slug='demo'").get();
@@ -1470,7 +1491,7 @@ const SHELL = `<!DOCTYPE html>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Scheduler">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f4f6fa}</style>
+<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#EDF2FB}</style>
 </head>
 <body><script src="/ui.js?v=${Date.now()}"></script></body>
 </html>`;
