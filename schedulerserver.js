@@ -1579,8 +1579,8 @@ app.get('/manifest.webmanifest', async (req, res) => {
   }
   res.type('application/manifest+json').json({
     name, short_name: short, description: 'Classes and afterschool programs.',
-    start_url: start, scope: '/', display: 'standalone',
-    background_color: '#0b1f4b', theme_color: '#151b2c',
+    start_url: start, scope: '/', display: 'standalone', orientation: 'portrait',
+    background_color: '#EDF2FB', theme_color: '#0B4FD3',
     icons: [
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
       { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
@@ -1600,9 +1600,9 @@ const SHELL = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>School Scheduler</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#151b2c">
+<meta name="theme-color" content="#0B4FD3">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Scheduler">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#EDF2FB}</style>
