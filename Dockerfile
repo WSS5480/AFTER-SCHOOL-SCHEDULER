@@ -4,4 +4,4 @@ COPY package.json ./
 RUN npm install --omit=dev
 COPY . .
 EXPOSE 10000
-CMD ["node", "scheduler-server.js"]
+CMD ["node", "schedulerserver.js"]

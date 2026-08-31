@@ -1,18 +1,27 @@
 {
-  "name": "school-scheduler",
+  "name": "servetrack",
   "version": "1.0.0",
-  "description": "School classes & afterschool programs scheduler (multi-school)",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
+  "description": "Process serving management: jobs, GPS attempts, affidavits, invoices, contractor pay",
+  "main": "servetrackserver.js",
+  "directories": {
+    "lib": "lib"
   },
+  "scripts": {
+    "start": "node servetrackserver.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.3.0",
-    "cookie-parser": "^1.4.6",
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
-    "nodemailer": "^6.9.14",
-    "stripe": "^16.0.0"
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.2",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
+    "pdf-parse": "^2.4.5"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
   }
 }
