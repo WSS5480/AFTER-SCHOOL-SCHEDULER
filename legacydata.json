@@ -1,0 +1,298 @@
+{
+  "exported_at": "2026-08-31T19:05:24.471Z",
+  "tables": {
+    "schools": [
+      {
+        "id": 1,
+        "name": "Demo Elementary",
+        "subtitle": "Try the scheduler here — demo school",
+        "plan": "pro",
+        "stripe_sub": "",
+        "plan_expires": "",
+        "slug": "demo",
+        "created": "2026-08-12 01:25:33"
+      },
+      {
+        "id": 2,
+        "name": "Aimee Elementary",
+        "subtitle": "Mission CISD",
+        "plan": "pro",
+        "stripe_sub": "",
+        "plan_expires": "2026-08-26",
+        "slug": "aimee-elementary",
+        "created": "2026-08-12 01:43:20"
+      },
+      {
+        "id": 3,
+        "name": "Mission",
+        "subtitle": "",
+        "plan": "free",
+        "stripe_sub": "",
+        "plan_expires": "",
+        "slug": "mission",
+        "created": "2026-08-17 02:14:23"
+      }
+    ],
+    "settings": [
+      {
+        "school_id": 1,
+        "window_days": 14,
+        "threshold": 80,
+        "limitation": "waitlist_only",
+        "autopromote": 1
+      },
+      {
+        "school_id": 2,
+        "window_days": 14,
+        "threshold": 80,
+        "limitation": "waitlist_only",
+        "autopromote": 1
+      },
+      {
+        "school_id": 3,
+        "window_days": 14,
+        "threshold": 80,
+        "limitation": "waitlist_only",
+        "autopromote": 1
+      }
+    ],
+    "users": [
+      {
+        "id": 1,
+        "school_id": 1,
+        "role": "admin",
+        "name": "School Admin",
+        "email": "admin@demo.school",
+        "pass_hash": "$2a$10$xDe8pI8nXSGLb6tFLfxw6eY4xMGbLo1k5MNiExUh0MnXSnKdZBZHO",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-12 01:13:57"
+      },
+      {
+        "id": 2,
+        "school_id": 1,
+        "role": "teacher",
+        "name": "Coach Rivera",
+        "email": "rivera@demo.school",
+        "pass_hash": "$2a$10$aBO6svBBgwALnFFZPgH0vOsbmKx9LPrdJ3jgjFeUt7Zvrq0o1uhYu",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-12 01:13:57"
+      },
+      {
+        "id": 3,
+        "school_id": 1,
+        "role": "student",
+        "name": "Maya Torres",
+        "email": "maya@demo.school",
+        "pass_hash": "$2a$10$Z/4Am48lPN4.L92JhTkHP.QWJ6SGRMrxD3CtuRNx6J97HH8W4g7aW",
+        "grade": "5",
+        "student_id": "S-1001",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-12 01:13:57"
+      },
+      {
+        "id": 4,
+        "school_id": 2,
+        "role": "admin",
+        "name": "Mr Principal",
+        "email": "school1@school.com",
+        "pass_hash": "$2a$10$DyHlpl0tuyeqR0kKSuXjE./BFY80QQDb5Gb7ZGINObduZv6NFhjUm",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-12 01:43:20"
+      },
+      {
+        "id": 6,
+        "school_id": 1,
+        "role": "student",
+        "name": "Mags",
+        "email": "maggienava80@gmail.com",
+        "pass_hash": "$2a$10$IOYkOPQAiKp3i1lZbLXGW.Anhg8MZ0TQdpfYSUKEdq00rgWP26Hm.",
+        "grade": "11",
+        "student_id": "7377373",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-17 00:59:23"
+      },
+      {
+        "id": 7,
+        "school_id": 1,
+        "role": "teacher",
+        "name": "Maggie’s teach",
+        "email": "maggienava@gmail.com",
+        "pass_hash": "$2a$10$QmCYYwoYUi3W81n6j/VEBugP2wF.7d0d/BWELQilJNG/4dYpQ7tBG",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-17 01:02:25"
+      },
+      {
+        "id": 8,
+        "school_id": 1,
+        "role": "admin",
+        "name": "Demo Admin",
+        "email": "admin@demo.com",
+        "pass_hash": "$2a$10$x6BhiFgS.b4DiUYcqqRhbefcvsJogucPTsChY4vyiQvUlxDVygUiC",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-17 01:26:14"
+      },
+      {
+        "id": 9,
+        "school_id": 1,
+        "role": "teacher",
+        "name": "Demo Teacher",
+        "email": "teacher@demo.com",
+        "pass_hash": "$2a$10$x6BhiFgS.b4DiUYcqqRhbefcvsJogucPTsChY4vyiQvUlxDVygUiC",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-17 01:26:14"
+      },
+      {
+        "id": 10,
+        "school_id": 1,
+        "role": "student",
+        "name": "Demo Student",
+        "email": "student@demo.com",
+        "pass_hash": "$2a$10$x6BhiFgS.b4DiUYcqqRhbefcvsJogucPTsChY4vyiQvUlxDVygUiC",
+        "grade": "5",
+        "student_id": "S-0001",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-17 01:26:14"
+      },
+      {
+        "id": 11,
+        "school_id": 3,
+        "role": "admin",
+        "name": "Steve Smith",
+        "email": "stevesmith.1@yahoo.com",
+        "pass_hash": "$2a$10$C8sS3NQilgyI0Jw7F0UgUOlhUb9dRmrzg.6i9klcS.Wa68O2O6ly6",
+        "grade": "",
+        "student_id": "",
+        "id_photo": "",
+        "status": "approved",
+        "created": "2026-08-17 02:14:23"
+      }
+    ],
+    "programs": [
+      {
+        "id": 1,
+        "school_id": 1,
+        "name": "Chess Club",
+        "type": "afterschool",
+        "teacher_id": 2,
+        "room": "Rm 104",
+        "capacity": 16,
+        "days": "1,3",
+        "time_start": "15:30",
+        "time_end": "16:30",
+        "date_start": "2026-07-29",
+        "date_end": "2026-11-10",
+        "emoji": "♟️"
+      },
+      {
+        "id": 2,
+        "school_id": 1,
+        "name": "Track & Field",
+        "type": "afterschool",
+        "teacher_id": 2,
+        "room": "Field",
+        "capacity": 24,
+        "days": "2,4",
+        "time_start": "15:30",
+        "time_end": "17:00",
+        "date_start": "2026-07-29",
+        "date_end": "2026-11-10",
+        "emoji": "🏃"
+      },
+      {
+        "id": 3,
+        "school_id": 1,
+        "name": "Robotics Lab",
+        "type": "class",
+        "teacher_id": 2,
+        "room": "STEM Lab",
+        "capacity": 3,
+        "days": "3",
+        "time_start": "15:30",
+        "time_end": "17:00",
+        "date_start": "2026-07-29",
+        "date_end": "2026-11-10",
+        "emoji": "🤖"
+      }
+    ],
+    "reservations": [
+      {
+        "id": 1,
+        "program_id": 1,
+        "student_id": 6,
+        "date": "2026-08-17",
+        "status": "reserved",
+        "attended": null,
+        "created": "2026-08-17 01:00:44"
+      },
+      {
+        "id": 2,
+        "program_id": 2,
+        "student_id": 6,
+        "date": "2026-08-20",
+        "status": "reserved",
+        "attended": null,
+        "created": "2026-08-17 01:00:49"
+      },
+      {
+        "id": 3,
+        "program_id": 1,
+        "student_id": 6,
+        "date": "2026-08-19",
+        "status": "reserved",
+        "attended": null,
+        "created": "2026-08-17 01:00:55"
+      }
+    ],
+    "photos": [],
+    "support_messages": [
+      {
+        "id": 1,
+        "school_id": 2,
+        "user_id": 4,
+        "message": "my password is not working",
+        "status": "closed",
+        "created": "2026-08-12 03:38:19"
+      }
+    ],
+    "email_log": [],
+    "redeemed_codes": [
+      {
+        "code": "PRO-14D-BC7YT5-C62DAC",
+        "school_id": 2,
+        "redeemed": "2026-08-12 03:37:32"
+      }
+    ]
+  },
+  "counts": {
+    "schools": 3,
+    "settings": 3,
+    "users": 10,
+    "programs": 3,
+    "reservations": 3,
+    "photos": 0,
+    "support_messages": 1,
+    "email_log": 0,
+    "redeemed_codes": 1
+  }
+}
