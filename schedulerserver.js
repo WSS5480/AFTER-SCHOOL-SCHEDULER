@@ -103,7 +103,17 @@ const changePassword = ({ email, oldPassword, newPassword }) =>
 
 const status = ({ email }) => call('/api/v1/status', { account: email });
 
-return { enabled, warm, login, register, changePassword, status, call };
+/* Plans belong to the school that pays, not to whoever is signed in, so these
+   are keyed by tenant ("school:7"). The caller keeps the last answer on the
+   school row and works from that, so an accounts service having a bad day
+   never stops a teacher taking attendance. */
+const plan = tenant => call('/api/v1/plan', { tenant });
+const startTrial = (tenant, tenantName) => call('/api/v1/trial', { tenant, tenantName });
+const redeemForTenant = ({ tenant, tenantName, code }) =>
+  call('/api/v1/redeem-tenant', { tenant, tenantName, code });
+
+return { enabled, warm, login, register, changePassword, status, call,
+         plan, startTrial, redeemForTenant };
 
 })();
 
@@ -282,6 +292,11 @@ const MIGRATIONS = [
   "ALTER TABLE schools ADD COLUMN IF NOT EXISTS plan         TEXT DEFAULT 'free'",
   "ALTER TABLE schools ADD COLUMN IF NOT EXISTS stripe_sub   TEXT DEFAULT ''",
   "ALTER TABLE schools ADD COLUMN IF NOT EXISTS plan_expires TEXT DEFAULT ''",
+  /* A copy of what My Apps last said about this school's plan. My Apps
+     decides; this is what the app falls back on when it cannot be reached. */
+  "ALTER TABLE schools ADD COLUMN IF NOT EXISTS plan_source   TEXT DEFAULT ''",
+  "ALTER TABLE schools ADD COLUMN IF NOT EXISTS plan_checked  TIMESTAMPTZ",
+  "ALTER TABLE schools ADD COLUMN IF NOT EXISTS trial_started BOOLEAN DEFAULT FALSE",
   "ALTER TABLE schools ADD COLUMN IF NOT EXISTS slug         TEXT DEFAULT ''",
   "ALTER TABLE schools ADD COLUMN IF NOT EXISTS created      TEXT DEFAULT ''",
   `CREATE TABLE IF NOT EXISTS support_messages(
@@ -333,8 +348,6 @@ const FREE_LIMITS = {
 };
 const UPGRADE_CODE = process.env.UPGRADE_CODE || 'SCHOOL-PRO-2026';
 const CODE_SECRET = process.env.CODE_SECRET || 'scheduler-trial-secret';
-const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@demo.school';
-const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'owner123';
 const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK_URL || '';
 const RESEND_KEY = process.env.RESEND_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || '';
@@ -411,15 +424,74 @@ function trialSig(days, nonce) {
   return crypto.createHmac('sha256', CODE_SECRET).update(days + '|' + nonce.toUpperCase())
     .digest('hex').slice(0, 6).toUpperCase();
 }
+/* Every new school gets the whole app for a month before the free ceilings
+ * mean anything.
+ *
+ * My Apps holds the trial and the plan; this keeps a copy on the school row and
+ * reads only that copy when deciding whether to allow something. The check runs
+ * on the path where a teacher is being added or a program created, and that
+ * path must not wait on a service that may be asleep. Refreshed here at most
+ * every ten minutes, and never allowed to throw.                            */
+const PLAN_RECHECK_MS = 10 * 60 * 1000;
+const schoolTenant = id => 'school:' + id;
+
+const asDate = v => {
+  if (!v) return '';
+  if (v instanceof Date) {
+    return new Date(v.getTime() - v.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  }
+  return String(v).slice(0, 10);
+};
+
+async function refreshSchoolPlan(schoolId) {
+  if (!central.enabled()) return;
+  const row = await db.prepare(
+    'SELECT id,name,plan_checked,trial_started FROM schools WHERE id=?').get(schoolId);
+  if (!row) return;
+  if (row.plan_checked && Date.now() - new Date(row.plan_checked).getTime() < PLAN_RECHECK_MS) return;
+
+  try {
+    /* The first ask of a school's life starts its trial; every one after that
+       is only a question. Either way one call, and one answer. */
+    const answer = row.trial_started
+      ? await central.plan(schoolTenant(schoolId))
+      : await central.startTrial(schoolTenant(schoolId), row.name);
+    if (!answer.ok) return;
+
+    await db.prepare(
+      `UPDATE schools SET plan=?, plan_expires=?, plan_source=?, plan_checked=NOW(),
+                          trial_started=TRUE WHERE id=?`
+    ).run(answer.plan === 'pro' ? 'pro' : 'free', asDate(answer.expires_on),
+          answer.source || '', schoolId);
+
+    if (answer.started) console.log(`${row.name}: ${answer.days_left}-day trial started`);
+  } catch (e) {
+    console.error(`Could not refresh the plan for school ${schoolId}: ${e.message}`);
+  }
+}
+
 async function planUsage(schoolId) {
-  const row = await db.prepare('SELECT plan, plan_expires FROM schools WHERE id=?').get(schoolId) || {};
+  await refreshSchoolPlan(schoolId);
+  const row = await db.prepare(
+    'SELECT plan, plan_expires, plan_source FROM schools WHERE id=?').get(schoolId) || {};
   let plan = row.plan || 'free';
-  if (plan === 'pro' && row.plan_expires && row.plan_expires < todayISO()) {
-    await db.prepare("UPDATE schools SET plan='free', plan_expires='' WHERE id=?").run(schoolId);
+  const lapsed = plan === 'pro' && row.plan_expires && row.plan_expires < todayISO();
+  if (lapsed) {
+    await db.prepare("UPDATE schools SET plan='free' WHERE id=?").run(schoolId);
     plan = 'free';
   }
+  const left = plan === 'pro' && row.plan_expires
+    ? Math.max(0, Math.round((new Date(row.plan_expires) - new Date(new Date().toDateString())) / 86400000))
+    : null;
   return {
     plan, plan_expires: plan === 'pro' ? (row.plan_expires || '') : '',
+    source: row.plan_source || '',
+    trial: plan === 'pro' && row.plan_source === 'trial',
+    /* On free, with a trial as the last thing that happened, means the trial
+       is what ran out — whether this app noticed the date passing or My Apps
+       told us. Both routes have to say the same thing to the customer. */
+    trial_over: plan === 'free' && row.plan_source === 'trial',
+    days_left: left,
     limits: plan === 'free' ? FREE_LIMITS : null,
     programs: (await db.prepare('SELECT COUNT(*)::int c FROM programs WHERE school_id=?').get(schoolId)).c,
     teachers: (await db.prepare("SELECT COUNT(*)::int c FROM users WHERE school_id=? AND role='teacher' AND status='approved'").get(schoolId)).c,
@@ -430,12 +502,14 @@ async function planBlocked(schoolId, kind, verb) {
   const u = await planUsage(schoolId);
   if (u.plan !== 'free') return null;
   const v = verb || 'add';
+  // After a trial the wording matters: they had all of this yesterday.
+  const since = u.trial_over ? 'Your free trial has ended. The free plan covers' : 'Free plan limit reached:';
   if (kind === 'programs' && FREE_LIMITS.programs > 0 && u.programs >= FREE_LIMITS.programs)
-    return `Free plan limit reached (${FREE_LIMITS.programs} classes/programs). Upgrade to ${v} more.`;
+    return `${since} ${FREE_LIMITS.programs} classes/programs. Upgrade to ${v} more.`;
   if (kind === 'teachers' && FREE_LIMITS.teachers > 0 && u.teachers >= FREE_LIMITS.teachers)
-    return `Free plan limit reached (${FREE_LIMITS.teachers} teachers). Upgrade to ${v} more.`;
+    return `${since} ${FREE_LIMITS.teachers} teachers. Upgrade to ${v} more.`;
   if (kind === 'students' && FREE_LIMITS.students > 0 && u.students >= FREE_LIMITS.students)
-    return `Free plan limit reached (${FREE_LIMITS.students} students). Upgrade to ${v} more.`;
+    return `${since} ${FREE_LIMITS.students} students. Upgrade to ${v} more.`;
   return null;
 }
 
@@ -546,14 +620,6 @@ const q = {
 /* The demo school needs the query helpers above, so boot() runs it — see the
    bottom of this file, where everything is ordered. */
 
-function ownerAuth(req, res, next) {
-  try {
-    const p = jwt.verify(req.cookies.tok, SECRET);
-    if (!p.owner) throw 0;
-    next();
-  } catch { res.status(401).json({ error: 'Owner login required.' }); }
-}
-
 function auth(roles) {
   return async (req, res, next) => {
     try {
@@ -607,6 +673,8 @@ app.post('/api/register-school', async (req, res) => {
   res.cookie('tok', jwt.sign({ uid: a.lastInsertRowid }, SECRET, { expiresIn: '30d' }),
     { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
   notify(`🏫 New school registered: ${school_name.trim()} (/${slug}) — admin ${admin_name.trim()} <${admin_email.trim()}>`);
+  // Their thirty days start now, not on whatever page they happen to open next.
+  await refreshSchoolPlan(s.lastInsertRowid);
   res.json({ ok: true, slug });
 });
 
@@ -835,8 +903,14 @@ app.get('/api/me', auth(), async (req, res) => {
       sandbox = { home: hs ? hs.name : 'your school', slug: hs ? hs.slug : '' };
     }
   } catch (_) { /* not in a practice session */ }
+  /* Every page load lands here, which makes it the right place to keep the
+     plan current — and the first one of a school's life is what starts its
+     trial. refreshSchoolPlan swallows its own errors and is rate-limited, so
+     this costs nothing on a normal load and cannot break sign-in. */
+  await refreshSchoolPlan(u.school_id);
   const school = await q.school.get(u.school_id);
   res.json({ ...u, school, settings: await q.settings.get(u.school_id),
+    plan: await planUsage(u.school_id),
     sandbox, isDemo: !!(school && school.slug === 'demo') });
 });
 
@@ -1011,9 +1085,36 @@ app.post('/api/admin/upgrade', ...adm, async (req, res) => {
   const code = ((req.body || {}).code || '').trim().toUpperCase();
   // permanent code
   if (code === UPGRADE_CODE.toUpperCase()) {
-    await db.prepare("UPDATE schools SET plan='pro', plan_expires='' WHERE id=?").run(req.user.school_id);
+    await db.prepare("UPDATE schools SET plan='pro', plan_expires='', plan_source='manual' WHERE id=?")
+      .run(req.user.school_id);
     return res.json({ ok: true, message: 'Upgraded! Unlimited classes, teachers, and students are now enabled.' });
   }
+
+  /* Codes are minted in My Apps now, along with every other app's. It verifies
+     them, spends them once, and adds the days to whatever the school has left.
+     The older PRO-…-style codes are still honoured below, so anything already
+     handed out goes on working. */
+  if (central.enabled()) {
+    const school = await q.school.get(req.user.school_id);
+    const out = await central.redeemForTenant({
+      tenant: schoolTenant(req.user.school_id), tenantName: school && school.name, code });
+    if (out.ok) {
+      await db.prepare(
+        `UPDATE schools SET plan='pro', plan_expires=?, plan_source='code', plan_checked=NOW(),
+                            trial_started=TRUE WHERE id=?`
+      ).run(asDate(out.expires_on), req.user.school_id);
+      return res.json({ ok: true, message: out.added_to_existing
+        ? `${out.days} days added — you are covered until ${asDate(out.expires_on)}.`
+        : `Unlimited unlocked for ${out.days} days — active until ${asDate(out.expires_on)}.` });
+    }
+    /* A code My Apps has seen and spent is a real no. Anything else — it was
+       unreachable, or this is an older-style code it does not recognise —
+       falls through to the local check rather than becoming a false refusal. */
+    if (!out.unavailable && (out.status === 410 || out.status === 409)) {
+      return res.status(400).json({ error: out.error });
+    }
+  }
+
   // signed trial code: PRO-<days>D-<nonce>-<sig>
   const m = code.match(/^PRO-(\d{1,4})D-([A-Z0-9]{4,12})-([A-F0-9]{6})$/);
   if (m) {
@@ -1403,141 +1504,20 @@ app.post('/api/support', auth(['admin']), approvedOnly, async (req, res) => {
   res.json({ ok: true, message: 'Sent! Support will reply to your account email.' });
 });
 
-/* ---------------- owner (platform operator) ---------------- */
-app.post('/api/owner/login', (req, res) => {
-  const { email, password } = req.body || {};
-  if ((email || '').toLowerCase() !== OWNER_EMAIL.toLowerCase() || password !== OWNER_PASSWORD)
-    return res.status(401).json({ error: 'Wrong owner credentials.' });
-  res.cookie('tok', jwt.sign({ owner: true }, SECRET, { expiresIn: '7d' }),
-    { httpOnly: true, sameSite: 'lax', maxAge: 7 * 864e5 });
-  res.json({ ok: true });
-});
+/* ---------------- the console lives in My Apps now ----------------
+ *
+ * This app used to carry its own operator console at /office: schools and their
+ * plans, code generation, the support inbox, a settings checklist. All of it is
+ * in My Apps now, alongside the same for every other app, which is the point —
+ * one place to manage rather than one per app.
+ *
+ * What is left here is the app itself. Anyone who bookmarked /office is sent to
+ * the storefront rather than a dead page.                                    */
+app.get(['/owner', '/office'], (_req, res) => res.redirect(302, '/'));
 
-app.get('/api/owner/overview', ownerAuth, async (_req, res) => {
-  const schools = await db.prepare(`
-    SELECT s.id, s.name, s.slug, s.plan, s.plan_expires, s.created,
-      (SELECT COUNT(*)::int FROM programs p WHERE p.school_id=s.id) programs,
-      (SELECT COUNT(*)::int FROM users u WHERE u.school_id=s.id AND u.role='teacher' AND u.status='approved') teachers,
-      (SELECT COUNT(*)::int FROM users u WHERE u.school_id=s.id AND u.role='student' AND u.status='approved') students,
-      (SELECT email FROM users u WHERE u.school_id=s.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
-      (SELECT name FROM users u WHERE u.school_id=s.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_name
-    FROM schools s ORDER BY s.created DESC`).all();
-  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  const in7 = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
-  const alerts = [];
-  schools.filter(s => s.created.slice(0, 10) >= weekAgo)
-    .forEach(s => alerts.push({ type: 'new', text: `🏫 New school: ${s.name} (/${s.slug}) — ${s.admin_email || 'no admin'}`, when: s.created }));
-  schools.filter(s => s.plan === 'pro' && s.plan_expires && s.plan_expires <= in7)
-    .forEach(s => alerts.push({ type: 'trial', text: `⏳ Trial ending ${s.plan_expires}: ${s.name} — good time to follow up`, when: s.plan_expires }));
-  const support = await db.prepare(`
-    SELECT m.*, s.name school, s.slug, u.name user_name, u.email user_email
-    FROM support_messages m LEFT JOIN schools s ON s.id=m.school_id LEFT JOIN users u ON u.id=m.user_id
-    ORDER BY m.status='open' DESC, m.created DESC LIMIT 100`).all();
-  support.filter(m => m.status === 'open')
-    .forEach(m => alerts.push({ type: 'support', text: `🛟 Open support from ${m.school}: "${m.message.slice(0, 80)}"`, when: m.created }));
-  alerts.sort((a, b) => (b.when || '').localeCompare(a.when || ''));
-  res.json({
-    schools, support, alerts: alerts.slice(0, 20),
-    kpis: {
-      total: schools.length,
-      newWeek: schools.filter(s => s.created.slice(0, 10) >= weekAgo).length,
-      paid: schools.filter(s => s.plan === 'pro' && !s.plan_expires).length,
-      trials: schools.filter(s => s.plan === 'pro' && s.plan_expires).length,
-      students: schools.reduce((a, s) => a + s.students, 0),
-      openSupport: support.filter(m => m.status === 'open').length,
-    },
-  });
-});
+app.all(['/api/owner', '/api/owner/*'], (_req, res) =>
+  res.status(410).json({ error: 'The operator console moved to My Apps.' }));
 
-app.post('/api/owner/gencodes', ownerAuth, (req, res) => {
-  let { days, count } = req.body || {};
-  days = Math.max(1, Math.min(3650, Number(days) || 30));
-  count = Math.max(1, Math.min(50, Number(count) || 5));
-  const CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const codes = [];
-  for (let i = 0; i < count; i++) {
-    let nonce = '';
-    crypto.randomBytes(6).forEach(b => nonce += CH[b % CH.length]);
-    codes.push(`PRO-${days}D-${nonce}-${trialSig(String(days), nonce)}`);
-  }
-  res.json({ days, codes });
-});
-
-/* Everything the operator needs to log in, demo, and check the instance is safe.
-   Never returns real secrets — only whether each one is still on its default.   */
-app.get('/api/owner/setup', ownerAuth, async (req, res) => {
-  const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const demoSchool = await db.prepare("SELECT * FROM schools WHERE slug='demo'").get();
-  const demoAccounts = [
-    { role: 'School admin', email: 'admin@demo.school', password: 'admin123' },
-    { role: 'Teacher', email: 'rivera@demo.school', password: 'teach123' },
-    { role: 'Student', email: 'maya@demo.school', password: 'learn123' },
-  ];
-  for (const a of demoAccounts) a.exists = !!await q.userByEmail.get(a.email);
-  res.json({
-    owner: { email: OWNER_EMAIL, usingDefaultEmail: OWNER_EMAIL === 'owner@demo.school',
-      usingDefaultPassword: OWNER_PASSWORD === 'owner123' },
-    demo: { school: demoSchool ? demoSchool.name : null, slug: demoSchool ? demoSchool.slug : null,
-      accounts: demoAccounts },
-    env: [
-      { key: 'OWNER_PASSWORD', label: 'Office password', ok: OWNER_PASSWORD !== 'owner123',
-        warn: 'Still the default — anyone who reads the docs can open your office.' },
-      { key: 'JWT_SECRET', label: 'Session secret', ok: SECRET !== 'dev-secret-change-me',
-        warn: 'Still the default — logins could be forged.' },
-      { key: 'CODE_SECRET', label: 'Access-code secret', ok: CODE_SECRET !== 'scheduler-trial-secret',
-        warn: 'Still the default — anyone could mint free Pro codes.' },
-      { key: 'DB_PATH', label: 'Persistent database', ok: !!process.env.DB_PATH,
-        warn: 'Not set — data resets on every deploy.' },
-      { key: 'EMAIL_USER', label: 'Email (invites & resets)', ok: emailEnabled(),
-        warn: 'Not configured — no invite or reset emails go out.' },
-      { key: 'STRIPE_SECRET_KEY', label: 'Card subscriptions', ok: !!(stripe && STRIPE_PRICE),
-        warn: 'Not configured — upgrades happen by access code only.' },
-      { key: 'ALERT_WEBHOOK_URL', label: 'Instant alerts', ok: !!ALERT_WEBHOOK,
-        warn: 'Optional — set it to get pings in Slack/Discord or Int-AI-lisoft HQ.' },
-      { key: 'PARTNER_KEY', label: 'HQ can read this app', ok: !!process.env.PARTNER_KEY,
-        warn: 'Optional — needed for Int-AI-lisoft HQ to show this app\'s numbers.' },
-    ],
-    urls: { office: base + '/office', storefront: base + '/',
-      demo: demoSchool ? base + '/' + demoSchool.slug : null },
-  });
-});
-
-app.get('/api/owner/emailstatus', ownerAuth, async (_req, res) => {
-  const log = await db.prepare('SELECT * FROM email_log ORDER BY created DESC LIMIT 25').all();
-  res.json({
-    enabled: emailEnabled(), via: mailer ? 'gmail' : (RESEND_KEY ? 'resend' : null),
-    from: GMAIL_USER || EMAIL_FROM || null,
-    lastError: LAST_EMAIL_ERROR || '',
-    sent24h: (await db.prepare("SELECT COUNT(*)::int c FROM email_log WHERE ok=1 AND created>=datetime('now','-1 day')").get()).c,
-    failed24h: (await db.prepare("SELECT COUNT(*)::int c FROM email_log WHERE ok=0 AND created>=datetime('now','-1 day')").get()).c,
-    log,
-  });
-});
-app.post('/api/owner/testemail', ownerAuth, async (req, res) => {
-  const to = ((req.body || {}).to || '').trim();
-  if (!to) return res.status(400).json({ error: 'Enter an address to send the test to.' });
-  if (!emailEnabled()) return res.status(400).json({ error: 'Email is not configured — set GMAIL_USER (or EMAIL_USER) and GMAIL_APP_PASSWORD (or EMAIL_PASSWORD) env vars.' });
-  try {
-    await sendEmail(to, 'School Scheduler — test email',
-      '<p>✅ Email service is working. Password-reset links will be delivered from this address.</p>');
-    res.json({ ok: true, message: 'Test email sent to ' + to + ' — check the inbox (and spam).' });
-  } catch (e) { res.status(500).json({ error: 'Send failed: ' + e.message }); }
-});
-
-app.post('/api/owner/resetpw', ownerAuth, async (req, res) => {
-  const admin = await db.prepare("SELECT * FROM users WHERE school_id=? AND role='admin' ORDER BY id LIMIT 1")
-    .get((req.body || {}).school_id);
-  if (!admin) return res.status(404).json({ error: 'No admin account found for that school.' });
-  const temp = tempPassword();
-  await db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(temp, 10), admin.id);
-  centralReset(admin.email, temp, admin.name);
-  res.json({ ok: true, name: admin.name, email: admin.email, temp });
-});
-
-app.post('/api/owner/support/:id/close', ownerAuth, async (req, res) => {
-  await db.prepare("UPDATE support_messages SET status='closed' WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
-});
 
 /* ---------------- partner API (read-only, for Int-AI-lisoft HQ) ------------ */
 const PARTNER_KEY = process.env.PARTNER_KEY || '';
@@ -1664,15 +1644,13 @@ app.get('/sw.js', (_req, res) =>
   res.type('application/javascript').set('Cache-Control', 'no-cache')
      .sendFile(path.join(__dirname, 'sw.js')));
 
-/* The manifest is generated per page. Saving /office to the home screen should
-   reopen /office — a fixed start_url sent everyone back to the storefront.     */
+/* The manifest is generated per page, so a school that saves its own address to
+   the home screen reopens there rather than at the storefront. */
 app.get('/manifest.webmanifest', async (req, res) => {
   const raw = String(req.query.start || '/').split('?')[0];
   const seg = raw.replace(/^\/+|\/+$/g, '').toLowerCase();
   let start = '/', name = 'School Scheduler', short = 'Scheduler';
-  if (seg === 'office' || seg === 'owner') {
-    start = '/' + seg; name = 'Scheduler Office'; short = 'Office';
-  } else if (seg) {
+  if (seg) {
     const school = await db.prepare('SELECT name, slug FROM schools WHERE slug=?').get(seg);
     if (school) { start = '/' + school.slug; name = school.name; short = school.name.slice(0, 12); }
   }
@@ -1770,7 +1748,24 @@ reservations. For questions or deletion requests, contact
 </main></body></html>`;
 app.get('/privacy', (_req, res) => res.type('html').send(PRIVACY_PAGE));
 
-app.get(['/owner', '/office'], sendApp);
+/* Forgotten passwords are handled by My Apps, because that is where passwords
+   live. Every app carries the same plain link to here. */
+app.get('/forgot', (_req, res) => {
+  const base = (process.env.MY_APPS_URL || '').replace(/\/+$/, '');
+  if (!base) {
+    return res.type('html').send(
+      `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+       <body style="font:16px/1.6 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;background:#EDF2FB;
+       color:#101822;margin:0;padding:40px 20px"><div style="max-width:420px;margin:0 auto;background:#fff;
+       border:1px solid #DBE4F2;border-radius:14px;padding:24px">
+       <h1 style="margin:0 0 8px;font-size:21px;color:#0B4FD3">Reset your password</h1>
+       <p>Ask your school administrator, or contact
+          <a href="mailto:steve.smith@buddyrents.com">steve.smith@buddyrents.com</a>.</p>
+       <p><a href="/">Back to the Scheduler</a></p></div></body>`);
+  }
+  res.redirect(302, base + '/forgot?app=' + encodeURIComponent('School Scheduler'));
+});
+
 app.get('/', sendApp);
 /* per-school pages: /<slug> serves the app, which reads the slug client-side */
 app.get('/:slug', async (req, res) => {
